@@ -1,0 +1,105 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "IlanaORM",
+  "colors": {
+    "primary": "#0D9373",
+    "light": "#07C983",
+    "dark": "#0D9373"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "development"
+            ]
+          },
+          {
+            "group": "Essentials",
+            "pages": [
+              "essentials/configuration",
+              "essentials/models",
+              "essentials/queries",
+              "essentials/relationships"
+            ]
+          },
+          {
+            "group": "Database",
+            "pages": [
+              "database/migrations",
+              "database/seeders",
+              "database/factories",
+              "database/connections",
+              "database/transactions"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/events",
+              "advanced/observers",
+              "advanced/casting",
+              "advanced/scopes"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "API Documentation",
+            "pages": [
+              "api-reference/introduction"
+            ]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Community",
+          "href": "https://discord.gg/R9J6d24N",
+          "icon": "discord"
+        },
+        {
+          "anchor": "Blog",
+          "href": "https://medium.com/@raphyabak",
+          "icon": "newspaper"
+        }
+      ]
+    }
+  },
+  "logo": {
+    "light": "/images/ilana 1.png",
+    "dark": "/images/ilana 1.png"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Support",
+        "href": "mailto:raphyabak@gmail.com"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Github",
+      "href": "https://github.com/raphyabak/ilana-orm"
+    }
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/RaphWebb_Inc",
+      "github": "https://github.com/raphyabak/ilana-orm",
+      "linkedin": "https://www.linkedin.com/in/raphael-abayomi"
+    }
+  }
+}
