@@ -1,0 +1,808 @@
+---
+title: 'Query Scopes'
+description: 'Create reusable query constraints with powerful scopes'
+---
+
+## What are Query Scopes?
+
+Query scopes are reusable query constraints that you can define in your models. They allow you to encapsulate common query logic and chain it with other query methods for clean, readable code.
+
+<Info>
+**Real-world analogy:** Query scopes are like preset filters on a camera. Instead of manually adjusting settings every time (ISO, aperture, shutter speed), you have presets like "Portrait," "Landscape," or "Night Mode" that apply multiple settings at once. Similarly, scopes apply multiple query conditions with a single method call.
+</Info>
+
+## Basic Scopes
+
+### Defining Scopes
+
+```javascript
+// models/Post.js
+class Post extends Model {
+  // Simple scope - no parameters
+  static scopePublished(query) {
+    return query.where('is_published', true);
+  }
+  
+  // Scope with parameters
+  static scopeOfType(query, type) {
+    return query.where('type', type);
+  }
+  
+  // Complex scope with multiple conditions
+  static scopePopular(query, threshold = 100) {
+    return query
+      .where('views', '>', threshold)
+      .where('likes', '>', 10)
+      .orderBy('views', 'desc');
+  }
+  
+  // Date-based scope
+  static scopeRecent(query, days = 7) {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return query.where('created_at', '>', date);
+  }
+}
+```
+
+### Using Scopes
+
+```javascript
+// Simple scope usage
+const publishedPosts = await Post.query().published().get();
+
+// Scope with parameters
+const articles = await Post.query().ofType('article').get();
+
+// Chaining multiple scopes
+const popularRecentPosts = await Post.query()
+  .published()
+  .popular(500)
+  .recent(30)
+  .get();
+
+// Combining scopes with other query methods
+const results = await Post.query()
+  .published()
+  .ofType('tutorial')
+  .where('author_id', userId)
+  .orderBy('created_at', 'desc')
+  .limit(10)
+  .get();
+```
+
+<Tip>
+**Scope Naming:** Scope methods are automatically available without the `scope` prefix. `scopePublished` becomes `published()`, `scopeOfType` becomes `ofType()`.
+</Tip>
+
+## Advanced Scope Patterns
+
+### Conditional Scopes
+
+```javascript
+class User extends Model {
+  static scopeActive(query, isActive = true) {
+    return query.where('is_active', isActive);
+  }
+  
+  static scopeByRole(query, roles) {
+    if (Array.isArray(roles)) {
+      return query.whereIn('role', roles);
+    }
+    return query.where('role', roles);
+  }
+  
+  static scopeSearch(query, term) {
+    if (!term) return query;
+    
+    return query.where((q) => {
+      q.where('name', 'like', `%${term}%`)
+       .orWhere('email', 'like', `%${term}%`)
+       .orWhere('username', 'like', `%${term}%`);
+    });
+  }
+  
+  static scopeWithinDateRange(query, startDate, endDate) {
+    if (startDate) {
+      query = query.where('created_at', '>=', startDate);
+    }
+    
+    if (endDate) {
+      query = query.where('created_at', '<=', endDate);
+    }
+    
+    return query;
+  }
+}
+
+// Usage
+const users = await User.query()
+  .active()
+  .byRole(['admin', 'editor'])
+  .search('john')
+  .withinDateRange(new Date('2023-01-01'), new Date('2023-12-31'))
+  .get();
+```
+
+### Relationship Scopes
+
+```javascript
+class Post extends Model {
+  static scopeByAuthor(query, authorId) {
+    return query.where('user_id', authorId);
+  }
+  
+  static scopeWithAuthor(query, authorName) {
+    return query.whereHas('author', (authorQuery) => {
+      authorQuery.where('name', 'like', `%${authorName}%`);
+    });
+  }
+  
+  static scopeWithComments(query, minComments = 1) {
+    return query.has('comments', '>=', minComments);
+  }
+  
+  static scopeWithoutComments(query) {
+    return query.doesntHave('comments');
+  }
+  
+  static scopeInCategory(query, categorySlug) {
+    return query.whereHas('category', (categoryQuery) => {
+      categoryQuery.where('slug', categorySlug);
+    });
+  }
+  
+  static scopeWithTags(query, tags) {
+    return query.whereHas('tags', (tagQuery) => {
+      if (Array.isArray(tags)) {
+        tagQuery.whereIn('name', tags);
+      } else {
+        tagQuery.where('name', tags);
+      }
+    });
+  }
+}
+
+// Usage
+const posts = await Post.query()
+  .published()
+  .withAuthor('John')
+  .withComments(5)
+  .inCategory('technology')
+  .withTags(['javascript', 'nodejs'])
+  .get();
+```
+
+### Aggregation Scopes
+
+```javascript
+class Order extends Model {
+  static scopeByStatus(query, status) {
+    return query.where('status', status);
+  }
+  
+  static scopeByDateRange(query, startDate, endDate) {
+    return query.whereBetween('created_at', [startDate, endDate]);
+  }
+  
+  static scopeWithMinTotal(query, minAmount) {
+    return query.where('total', '>=', minAmount);
+  }
+  
+  static scopeGroupedByStatus(query) {
+    return query
+      .select('status')
+      .selectRaw('COUNT(*) as count')
+      .selectRaw('SUM(total) as total_amount')
+      .selectRaw('AVG(total) as average_amount')
+      .groupBy('status');
+  }
+  
+  static scopeMonthlyStats(query, year) {
+    return query
+      .selectRaw('MONTH(created_at) as month')
+      .selectRaw('COUNT(*) as order_count')
+      .selectRaw('SUM(total) as revenue')
+      .whereYear('created_at', year)
+      .groupBy('month')
+      .orderBy('month');
+  }
+}
+
+// Usage
+const stats = await Order.query()
+  .byStatus('completed')
+  .byDateRange(startDate, endDate)
+  .monthlyStats(2023)
+  .get();
+```
+
+## Dynamic Scopes
+
+### Parameterized Dynamic Scopes
+
+```javascript
+class Product extends Model {
+  static scopeInPriceRange(query, min, max) {
+    if (min !== undefined) {
+      query = query.where('price', '>=', min);
+    }
+    
+    if (max !== undefined) {
+      query = query.where('price', '<=', max);
+    }
+    
+    return query;
+  }
+  
+  static scopeWithFilters(query, filters = {}) {
+    // Category filter
+    if (filters.category) {
+      query = query.where('category_id', filters.category);
+    }
+    
+    // Brand filter
+    if (filters.brand) {
+      query = query.where('brand', filters.brand);
+    }
+    
+    // Price range filter
+    if (filters.minPrice || filters.maxPrice) {
+      query = query.inPriceRange(filters.minPrice, filters.maxPrice);
+    }
+    
+    // In stock filter
+    if (filters.inStock) {
+      query = query.where('stock_quantity', '>', 0);
+    }
+    
+    // Rating filter
+    if (filters.minRating) {
+      query = query.where('average_rating', '>=', filters.minRating);
+    }
+    
+    // Search filter
+    if (filters.search) {
+      query = query.where((q) => {
+        q.where('name', 'like', `%${filters.search}%`)
+         .orWhere('description', 'like', `%${filters.search}%`);
+      });
+    }
+    
+    return query;
+  }
+  
+  static scopeSortBy(query, sortBy, direction = 'asc') {
+    const allowedSorts = ['name', 'price', 'created_at', 'average_rating'];
+    
+    if (allowedSorts.includes(sortBy)) {
+      return query.orderBy(sortBy, direction);
+    }
+    
+    return query.orderBy('created_at', 'desc');
+  }
+}
+
+// Usage
+const products = await Product.query()
+  .withFilters({
+    category: 1,
+    minPrice: 10,
+    maxPrice: 100,
+    inStock: true,
+    minRating: 4,
+    search: 'laptop',
+  })
+  .sortBy('price', 'asc')
+  .paginate(1, 20);
+```
+
+### Builder Pattern Scopes
+
+```javascript
+class User extends Model {
+  static scopeFilter(query, callback) {
+    return callback(new UserFilterBuilder(query));
+  }
+}
+
+class UserFilterBuilder {
+  constructor(query) {
+    this.query = query;
+  }
+  
+  active(isActive = true) {
+    this.query = this.query.where('is_active', isActive);
+    return this;
+  }
+  
+  role(roles) {
+    if (Array.isArray(roles)) {
+      this.query = this.query.whereIn('role', roles);
+    } else {
+      this.query = this.query.where('role', roles);
+    }
+    return this;
+  }
+  
+  search(term) {
+    if (term) {
+      this.query = this.query.where((q) => {
+        q.where('name', 'like', `%${term}%`)
+         .orWhere('email', 'like', `%${term}%`);
+      });
+    }
+    return this;
+  }
+  
+  createdAfter(date) {
+    this.query = this.query.where('created_at', '>', date);
+    return this;
+  }
+  
+  createdBefore(date) {
+    this.query = this.query.where('created_at', '<', date);
+    return this;
+  }
+  
+  withPosts(minPosts = 1) {
+    this.query = this.query.has('posts', '>=', minPosts);
+    return this;
+  }
+  
+  // Return the final query
+  build() {
+    return this.query;
+  }
+}
+
+// Usage
+const users = await User.query()
+  .filter((filter) => {
+    return filter
+      .active()
+      .role(['admin', 'editor'])
+      .search('john')
+      .createdAfter(new Date('2023-01-01'))
+      .withPosts(5)
+      .build();
+  })
+  .get();
+```
+
+## Global Scopes
+
+### Automatic Scopes
+
+```javascript
+// Global scope that applies to all queries
+class SoftDeleteScope {
+  apply(query, model) {
+    if (model.softDeletes) {
+      return query.whereNull(`${model.table}.deleted_at`);
+    }
+    return query;
+  }
+}
+
+class TenantScope {
+  constructor(tenantId) {
+    this.tenantId = tenantId;
+  }
+  
+  apply(query, model) {
+    if (model.hasColumn('tenant_id')) {
+      return query.where(`${model.table}.tenant_id`, this.tenantId);
+    }
+    return query;
+  }
+}
+
+// Apply global scopes
+class User extends Model {
+  static softDeletes = true;
+  
+  static boot() {
+    super.boot();
+    
+    // Add global scopes
+    this.addGlobalScope(new SoftDeleteScope());
+    this.addGlobalScope(new TenantScope(getCurrentTenantId()));
+  }
+  
+  // Method to remove global scopes
+  static withoutGlobalScopes() {
+    return this.query().withoutGlobalScopes();
+  }
+  
+  static withTrashed() {
+    return this.query().withoutGlobalScope(SoftDeleteScope);
+  }
+}
+```
+
+## Scope Composition
+
+### Combining Scopes
+
+```javascript
+class Post extends Model {
+  // Base scopes
+  static scopePublished(query) {
+    return query.where('is_published', true);
+  }
+  
+  static scopeFeatured(query) {
+    return query.where('is_featured', true);
+  }
+  
+  static scopeRecent(query, days = 7) {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return query.where('created_at', '>', date);
+  }
+  
+  // Composite scopes
+  static scopeFeaturedAndRecent(query, days = 7) {
+    return query.featured().recent(days);
+  }
+  
+  static scopePublishedAndPopular(query, minViews = 1000) {
+    return query
+      .published()
+      .where('views', '>', minViews)
+      .orderBy('views', 'desc');
+  }
+  
+  static scopeHomepageContent(query) {
+    return query
+      .published()
+      .featured()
+      .recent(30)
+      .orderBy('featured_at', 'desc')
+      .limit(5);
+  }
+}
+
+// Usage
+const homepagePosts = await Post.query().homepageContent().get();
+```
+
+### Scope Inheritance
+
+```javascript
+// Base model with common scopes
+class BaseModel extends Model {
+  static scopeActive(query) {
+    return query.where('is_active', true);
+  }
+  
+  static scopeCreatedBetween(query, startDate, endDate) {
+    return query.whereBetween('created_at', [startDate, endDate]);
+  }
+  
+  static scopeOrderByLatest(query) {
+    return query.orderBy('created_at', 'desc');
+  }
+}
+
+// Inherit scopes
+class User extends BaseModel {
+  // User-specific scopes
+  static scopeVerified(query) {
+    return query.whereNotNull('email_verified_at');
+  }
+  
+  static scopeByRole(query, role) {
+    return query.where('role', role);
+  }
+}
+
+class Post extends BaseModel {
+  // Post-specific scopes
+  static scopePublished(query) {
+    return query.where('is_published', true);
+  }
+  
+  static scopeByAuthor(query, authorId) {
+    return query.where('user_id', authorId);
+  }
+}
+
+// Both models can use inherited scopes
+const activeUsers = await User.query().active().get();
+const recentPosts = await Post.query().active().orderByLatest().get();
+```
+
+## Testing Scopes
+
+### Unit Testing Scopes
+
+```javascript
+// test/scopes/PostScopes.test.js
+const Post = require('../../models/Post');
+
+describe('Post Scopes', () => {
+  beforeEach(async () => {
+    // Clear and seed test data
+    await Post.query().delete();
+    
+    await Post.create({
+      title: 'Published Post',
+      is_published: true,
+      views: 150,
+      created_at: new Date(),
+    });
+    
+    await Post.create({
+      title: 'Draft Post',
+      is_published: false,
+      views: 50,
+      created_at: new Date(),
+    });
+    
+    await Post.create({
+      title: 'Popular Post',
+      is_published: true,
+      views: 1500,
+      created_at: new Date(),
+    });
+  });
+  
+  describe('published scope', () => {
+    test('returns only published posts', async () => {
+      const posts = await Post.query().published().get();
+      
+      expect(posts).toHaveLength(2);
+      posts.forEach(post => {
+        expect(post.is_published).toBe(true);
+      });
+    });
+  });
+  
+  describe('popular scope', () => {
+    test('returns posts with views above threshold', async () => {
+      const posts = await Post.query().popular(100).get();
+      
+      expect(posts).toHaveLength(2);
+      posts.forEach(post => {
+        expect(post.views).toBeGreaterThan(100);
+      });
+    });
+    
+    test('uses default threshold when not provided', async () => {
+      const posts = await Post.query().popular().get();
+      
+      posts.forEach(post => {
+        expect(post.views).toBeGreaterThan(100);
+      });
+    });
+  });
+  
+  describe('scope chaining', () => {
+    test('can chain multiple scopes', async () => {
+      const posts = await Post.query()
+        .published()
+        .popular(100)
+        .get();
+      
+      posts.forEach(post => {
+        expect(post.is_published).toBe(true);
+        expect(post.views).toBeGreaterThan(100);
+      });
+    });
+  });
+});
+```
+
+### Integration Testing
+
+```javascript
+// test/integration/PostFiltering.test.js
+describe('Post Filtering Integration', () => {
+  test('complex filtering scenario', async () => {
+    // Create test data
+    const author = await User.create({
+      name: 'Test Author',
+      email: 'author@test.com',
+    });
+    
+    const category = await Category.create({
+      name: 'Technology',
+      slug: 'technology',
+    });
+    
+    const post = await Post.create({
+      title: 'JavaScript Tutorial',
+      content: 'Learn JavaScript...',
+      is_published: true,
+      views: 500,
+      user_id: author.id,
+      category_id: category.id,
+    });
+    
+    // Test complex scope chain
+    const results = await Post.query()
+      .published()
+      .popular(100)
+      .byAuthor(author.id)
+      .inCategory('technology')
+      .get();
+    
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe(post.id);
+  });
+});
+```
+
+## Performance Optimization
+
+### Efficient Scopes
+
+```javascript
+class Post extends Model {
+  // ✅ Good - uses indexes
+  static scopePublished(query) {
+    return query.where('is_published', true); // Assumes index on is_published
+  }
+  
+  // ✅ Good - limits results early
+  static scopeLatest(query, limit = 10) {
+    return query
+      .orderBy('created_at', 'desc')
+      .limit(limit);
+  }
+  
+  // ✅ Good - uses specific selects
+  static scopeForListing(query) {
+    return query.select([
+      'id', 'title', 'excerpt', 'created_at', 'user_id'
+    ]);
+  }
+  
+  // ❌ Avoid - expensive operations
+  static scopeWithExpensiveCalculation(query) {
+    return query.selectRaw(`
+      *,
+      (SELECT COUNT(*) FROM comments WHERE post_id = posts.id) as comment_count,
+      (SELECT AVG(rating) FROM reviews WHERE post_id = posts.id) as avg_rating
+    `);
+  }
+}
+```
+
+### Cached Scopes
+
+```javascript
+class Post extends Model {
+  static scopePopularCached(query, threshold = 100) {
+    const cacheKey = `popular_posts_${threshold}`;
+    
+    // Check cache first
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return query.whereIn('id', cached);
+    }
+    
+    // If not cached, build query and cache result
+    return query
+      .where('views', '>', threshold)
+      .orderBy('views', 'desc')
+      .tap(async (results) => {
+        const ids = results.map(post => post.id);
+        cache.put(cacheKey, ids, 3600); // Cache for 1 hour
+      });
+  }
+}
+```
+
+## Best Practices
+
+### 1. Keep Scopes Focused
+
+```javascript
+// ✅ Good - single responsibility
+static scopePublished(query) {
+  return query.where('is_published', true);
+}
+
+static scopeRecent(query, days = 7) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return query.where('created_at', '>', date);
+}
+
+// ❌ Bad - doing too much
+static scopePublishedAndRecentAndPopular(query) {
+  return query
+    .where('is_published', true)
+    .where('created_at', '>', someDate)
+    .where('views', '>', 100)
+    .orderBy('views', 'desc');
+}
+```
+
+### 2. Use Descriptive Names
+
+```javascript
+// ✅ Good - clear intent
+static scopePublished(query) { /* ... */ }
+static scopeByAuthor(query, authorId) { /* ... */ }
+static scopeWithMinimumViews(query, views) { /* ... */ }
+
+// ❌ Bad - unclear purpose
+static scopeFilter1(query) { /* ... */ }
+static scopeSpecial(query) { /* ... */ }
+static scopeCustom(query, param) { /* ... */ }
+```
+
+### 3. Handle Parameters Safely
+
+```javascript
+// ✅ Good - validates parameters
+static scopeByRole(query, roles) {
+  if (!roles) return query;
+  
+  if (Array.isArray(roles)) {
+    return query.whereIn('role', roles);
+  }
+  
+  return query.where('role', roles);
+}
+
+// ❌ Bad - no parameter validation
+static scopeByRole(query, roles) {
+  return query.whereIn('role', roles); // Fails if roles is not array
+}
+```
+
+### 4. Document Complex Scopes
+
+```javascript
+/**
+ * Scope for filtering posts by engagement metrics
+ * 
+ * @param {QueryBuilder} query
+ * @param {Object} options
+ * @param {number} options.minViews - Minimum view count
+ * @param {number} options.minLikes - Minimum like count
+ * @param {number} options.minComments - Minimum comment count
+ * @param {number} options.days - Days to look back (default: 30)
+ */
+static scopeHighEngagement(query, options = {}) {
+  const {
+    minViews = 1000,
+    minLikes = 50,
+    minComments = 10,
+    days = 30
+  } = options;
+  
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  
+  return query
+    .where('views', '>=', minViews)
+    .where('likes', '>=', minLikes)
+    .has('comments', '>=', minComments)
+    .where('created_at', '>', date);
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="API Reference"
+    icon="book"
+    href="/api-reference/introduction"
+  >
+    Explore the complete API documentation
+  </Card>
+  <Card
+    title="Model Methods"
+    icon="cube"
+    href="/api-reference/model/create"
+  >
+    Learn about all available model methods
+  </Card>
+</CardGroup>

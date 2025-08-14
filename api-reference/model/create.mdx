@@ -1,0 +1,513 @@
+---
+title: 'Model.create()'
+description: 'Create new records in the database'
+---
+
+## Overview
+
+The `create()` method creates a new record in the database and returns the model instance. It's the most common way to insert new data.
+
+```javascript
+const user = await User.create({
+  name: 'John Doe',
+  email: 'john@example.com',
+  password: 'secret123'
+});
+```
+
+## Syntax
+
+```javascript
+Model.create(attributes, options = {})
+```
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `attributes` | `Object` | Yes | Data to insert into the database |
+| `options` | `Object` | No | Additional options for creation |
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `connection` | `string` | `null` | Database connection to use |
+| `returning` | `Array\|string` | `['*']` | Columns to return after insert |
+| `onConflict` | `string` | `null` | Conflict resolution strategy |
+
+### Returns
+
+- **Type:** `Promise<Model>`
+- **Description:** Promise that resolves to the created model instance
+
+## Basic Usage
+
+### Simple Creation
+
+```javascript
+const user = await User.create({
+  name: 'John Doe',
+  email: 'john@example.com',
+  age: 30
+});
+
+console.log(user.id);    // Auto-generated ID
+console.log(user.name);  // "John Doe"
+console.log(user.email); // "john@example.com"
+```
+
+### With Timestamps
+
+```javascript
+// If timestamps are enabled, created_at and updated_at are set automatically
+class User extends Model {
+  static timestamps = true;
+}
+
+const user = await User.create({
+  name: 'Jane Smith',
+  email: 'jane@example.com'
+});
+
+console.log(user.created_at); // Current timestamp
+console.log(user.updated_at); // Current timestamp
+```
+
+### With Default Values
+
+```javascript
+class User extends Model {
+  attributes = {
+    is_active: true,
+    role: 'user'
+  };
+}
+
+const user = await User.create({
+  name: 'Bob Wilson',
+  email: 'bob@example.com'
+  // is_active and role will use default values
+});
+
+console.log(user.is_active); // true
+console.log(user.role);      // "user"
+```
+
+## Advanced Usage
+
+### Mass Assignment Protection
+
+```javascript
+class User extends Model {
+  fillable = ['name', 'email', 'password'];
+  // or
+  guarded = ['id', 'is_admin', 'created_at'];
+}
+
+// Only fillable fields are inserted
+const user = await User.create({
+  name: 'John Doe',
+  email: 'john@example.com',
+  password: 'secret123',
+  is_admin: true  // This will be ignored (not in fillable)
+});
+```
+
+### Using Specific Connection
+
+```javascript
+const user = await User.create({
+  name: 'John Doe',
+  email: 'john@example.com'
+}, {
+  connection: 'secondary_db'
+});
+```
+
+### Conflict Resolution
+
+```javascript
+// PostgreSQL - ON CONFLICT DO NOTHING
+const user = await User.create({
+  email: 'john@example.com',
+  name: 'John Doe'
+}, {
+  onConflict: 'DO NOTHING'
+});
+
+// MySQL - ON DUPLICATE KEY UPDATE
+const user = await User.create({
+  email: 'john@example.com',
+  name: 'John Updated'
+}, {
+  onConflict: 'UPDATE'
+});
+```
+
+### Returning Specific Columns
+
+```javascript
+const user = await User.create({
+  name: 'John Doe',
+  email: 'john@example.com',
+  password: 'secret123'
+}, {
+  returning: ['id', 'name', 'email'] // Don't return password
+});
+```
+
+## Bulk Creation
+
+### Create Multiple Records
+
+```javascript
+const users = await User.insertMany([
+  { name: 'John Doe', email: 'john@example.com' },
+  { name: 'Jane Smith', email: 'jane@example.com' },
+  { name: 'Bob Wilson', email: 'bob@example.com' }
+]);
+
+console.log(users.length); // 3
+console.log(users[0].name); // "John Doe"
+```
+
+### Batch Insert with Options
+
+```javascript
+const users = await User.insertMany([
+  { name: 'User 1', email: 'user1@example.com' },
+  { name: 'User 2', email: 'user2@example.com' }
+], {
+  batchSize: 100,  // Insert in batches of 100
+  returning: ['id', 'name']
+});
+```
+
+## With Relationships
+
+### Creating Related Records
+
+```javascript
+// Create user and profile together
+const user = await User.create({
+  name: 'John Doe',
+  email: 'john@example.com'
+});
+
+// Create related profile
+const profile = await user.profile().create({
+  bio: 'Software developer',
+  website: 'https://johndoe.com'
+});
+```
+
+### Using Model Events
+
+```javascript
+class User extends Model {
+  static {
+    this.creating(async (user) => {
+      // Set UUID before creating
+      user.uuid = generateUuid();
+    });
+    
+    this.created(async (user) => {
+      // Send welcome email after creating
+      await sendWelcomeEmail(user.email);
+      
+      // Create default profile
+      await user.profile().create({
+        bio: '',
+        avatar: null
+      });
+    });
+  }
+}
+
+const user = await User.create({
+  name: 'John Doe',
+  email: 'john@example.com'
+});
+// Events fire automatically
+```
+
+## Validation
+
+### Built-in Validation
+
+```javascript
+class User extends Model {
+  static rules = {
+    name: 'required|string|min:2',
+    email: 'required|email|unique:users',
+    age: 'integer|min:18'
+  };
+}
+
+try {
+  const user = await User.create({
+    name: 'J',  // Too short
+    email: 'invalid-email',  // Invalid format
+    age: 16  // Too young
+  });
+} catch (error) {
+  console.log(error.errors);
+  // {
+  //   name: ['Name must be at least 2 characters'],
+  //   email: ['Email must be valid'],
+  //   age: ['Age must be at least 18']
+  // }
+}
+```
+
+### Custom Validation
+
+```javascript
+class User extends Model {
+  static {
+    this.creating(async (user) => {
+      // Custom validation
+      if (!user.email.includes('@')) {
+        throw new Error('Email must contain @ symbol');
+      }
+      
+      if (user.age < 13) {
+        throw new Error('Users must be at least 13 years old');
+      }
+    });
+  }
+}
+```
+
+## Attribute Casting
+
+### Automatic Casting
+
+```javascript
+class User extends Model {
+  casts = {
+    birth_date: 'date',
+    is_active: 'boolean',
+    preferences: 'json',
+    age: 'number'
+  };
+}
+
+const user = await User.create({
+  name: 'John Doe',
+  birth_date: '1990-01-01',  // String converted to Date
+  is_active: 1,              // Number converted to boolean
+  preferences: { theme: 'dark' }, // Object converted to JSON string
+  age: '30'                  // String converted to number
+});
+
+console.log(user.birth_date instanceof Date); // true
+console.log(typeof user.is_active);           // "boolean"
+console.log(typeof user.preferences);         // "object"
+console.log(typeof user.age);                 // "number"
+```
+
+### Custom Mutators
+
+```javascript
+class User extends Model {
+  setEmailAttribute(value) {
+    return value.toLowerCase().trim();
+  }
+  
+  setPasswordAttribute(value) {
+    return bcrypt.hashSync(value, 10);
+  }
+}
+
+const user = await User.create({
+  name: 'John Doe',
+  email: '  JOHN@EXAMPLE.COM  ',  // Will be normalized
+  password: 'secret123'            // Will be hashed
+});
+
+console.log(user.email); // "john@example.com"
+// user.password is now hashed
+```
+
+## Error Handling
+
+### Common Errors
+
+```javascript
+try {
+  const user = await User.create({
+    name: 'John Doe',
+    email: 'john@example.com'
+  });
+} catch (error) {
+  if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    console.log('Email already exists');
+  } else if (error.code === 'SQLITE_CONSTRAINT_NOTNULL') {
+    console.log('Required field is missing');
+  } else {
+    console.log('Creation failed:', error.message);
+  }
+}
+```
+
+### Validation Errors
+
+```javascript
+try {
+  const user = await User.create({
+    email: 'invalid-email'
+  });
+} catch (error) {
+  if (error.name === 'ValidationException') {
+    console.log('Validation errors:', error.errors);
+    
+    // Handle specific field errors
+    if (error.errors.email) {
+      console.log('Email error:', error.errors.email[0]);
+    }
+  }
+}
+```
+
+## Performance Tips
+
+### Batch Operations
+
+```javascript
+// ❌ Slow - multiple database calls
+const users = [];
+for (const userData of userDataArray) {
+  const user = await User.create(userData);
+  users.push(user);
+}
+
+// ✅ Fast - single database call
+const users = await User.insertMany(userDataArray);
+```
+
+### Selective Returns
+
+```javascript
+// ❌ Returns all columns (slower)
+const user = await User.create({
+  name: 'John Doe',
+  email: 'john@example.com',
+  bio: 'Very long bio text...'
+});
+
+// ✅ Returns only needed columns (faster)
+const user = await User.create({
+  name: 'John Doe',
+  email: 'john@example.com',
+  bio: 'Very long bio text...'
+}, {
+  returning: ['id', 'name', 'email']
+});
+```
+
+### Connection Pooling
+
+```javascript
+// Use connection pooling for high-volume creation
+const users = await Promise.all([
+  User.create({ name: 'User 1', email: 'user1@example.com' }),
+  User.create({ name: 'User 2', email: 'user2@example.com' }),
+  User.create({ name: 'User 3', email: 'user3@example.com' })
+]);
+```
+
+## Examples
+
+### E-commerce Product
+
+```javascript
+class Product extends Model {
+  fillable = ['name', 'description', 'price', 'sku', 'category_id'];
+  
+  casts = {
+    price: 'float',
+    is_active: 'boolean',
+    metadata: 'json'
+  };
+  
+  attributes = {
+    is_active: true,
+    stock_quantity: 0
+  };
+}
+
+const product = await Product.create({
+  name: 'Wireless Headphones',
+  description: 'High-quality wireless headphones',
+  price: 99.99,
+  sku: 'WH-001',
+  category_id: 1,
+  metadata: {
+    brand: 'TechCorp',
+    warranty: '2 years',
+    features: ['noise-canceling', 'bluetooth-5.0']
+  }
+});
+```
+
+### Blog Post with Tags
+
+```javascript
+const post = await Post.create({
+  title: 'Getting Started with IlanaORM',
+  content: 'IlanaORM is a powerful ORM...',
+  user_id: 1,
+  is_published: true
+});
+
+// Attach tags
+await post.tags().attach([1, 2, 3]);
+```
+
+### User Registration
+
+```javascript
+class User extends Model {
+  fillable = ['name', 'email', 'password'];
+  hidden = ['password', 'remember_token'];
+  
+  casts = {
+    email_verified_at: 'date',
+    is_active: 'boolean'
+  };
+  
+  static {
+    this.creating(async (user) => {
+      user.email = user.email.toLowerCase();
+      user.password = await bcrypt.hash(user.password, 12);
+    });
+    
+    this.created(async (user) => {
+      await sendWelcomeEmail(user.email);
+      await user.profile().create({ bio: '', avatar: null });
+    });
+  }
+}
+
+const user = await User.create({
+  name: 'John Doe',
+  email: 'JOHN@EXAMPLE.COM',
+  password: 'secret123'
+});
+```
+
+## Related Methods
+
+- [`Model.make()`](/api-reference/model/make) - Create model instance without saving
+- [`Model.firstOrCreate()`](/api-reference/model/find#firstorcreate) - Find existing or create new
+- [`Model.updateOrCreate()`](/api-reference/model/update#updateorcreate) - Update existing or create new
+- [`Model.insertMany()`](/api-reference/model/create#bulk-creation) - Create multiple records
+
+## See Also
+
+- [Mass Assignment Protection](/essentials/models#mass-assignment-protection)
+- [Model Events](/advanced/events)
+- [Attribute Casting](/essentials/models#attribute-casting)
+- [Validation](/essentials/models#validation)

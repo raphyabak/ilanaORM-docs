@@ -1,0 +1,325 @@
+---
+title: 'Quickstart'
+description: 'Get started with IlanaORM in under 5 minutes'
+---
+
+## Installation
+
+IlanaORM comes with everything you need - no additional database drivers required!
+
+<CodeGroup>
+
+```bash npm
+npm install ilana-orm
+```
+
+```bash yarn
+yarn add ilana-orm
+```
+
+```bash pnpm
+pnpm add ilana-orm
+```
+
+</CodeGroup>
+
+## Setup Your Project
+
+The easiest way to get started is with the automatic setup:
+
+```bash
+npx ilana setup
+```
+
+This creates:
+- Configuration file (`ilana.config.js`)
+- Database directories (`database/migrations`, `database/seeds`, etc.)
+- Models directory (`models/`)
+- Sample environment file (`.env`)
+
+<Tip>
+**What just happened?** The setup command created a folder structure that organizes your database-related files. Think of it like creating folders for different types of documents on your computer.
+</Tip>
+
+## Configure Your Database
+
+Edit the generated `ilana.config.js` file:
+
+<CodeGroup>
+
+```javascript SQLite (Recommended for beginners)
+module.exports = {
+  default: "sqlite",
+  
+  connections: {
+    sqlite: {
+      client: "sqlite3",
+      connection: {
+        filename: "./database.sqlite",
+      },
+    },
+  },
+  
+  migrations: {
+    directory: "./database/migrations",
+  },
+  
+  seeds: {
+    directory: "./database/seeds",
+  },
+};
+```
+
+```javascript MySQL
+module.exports = {
+  default: "mysql",
+  
+  connections: {
+    mysql: {
+      client: "mysql2",
+      connection: {
+        host: "localhost",
+        port: 3306,
+        user: "your_username",
+        password: "your_password",
+        database: "your_database",
+        timezone: "UTC",
+      },
+    },
+  },
+  
+  migrations: {
+    directory: "./database/migrations",
+  },
+};
+```
+
+```javascript PostgreSQL
+module.exports = {
+  default: "postgres",
+  
+  connections: {
+    postgres: {
+      client: "pg",
+      connection: {
+        host: "localhost",
+        port: 5432,
+        user: "your_username",
+        password: "your_password",
+        database: "your_database",
+      },
+    },
+  },
+  
+  migrations: {
+    directory: "./database/migrations",
+  },
+};
+```
+
+</CodeGroup>
+
+<Note>
+**SQLite is perfect for learning!** It creates a simple file-based database that doesn't require any server setup. You can always switch to MySQL or PostgreSQL later.
+</Note>
+
+## Create Your First Model
+
+Let's create a `User` model to represent users in our application:
+
+```bash
+npx ilana make:model User --migration
+```
+
+This creates two files:
+- `models/User.js` (or `.ts` if TypeScript detected)
+- `database/migrations/xxxx_create_users_table.js`
+
+<Info>
+**What's a Model?** Think of a model as a JavaScript class that represents a table in your database. If you have a "users" table, you'd have a "User" model to work with user data.
+
+**What's a Migration?** A migration is like a recipe for creating or modifying database tables. It tells the database what columns to create, what types they should be, etc.
+</Info>
+
+## Define Your Model
+
+Open the generated `models/User.js` file:
+
+<CodeGroup>
+
+```javascript JavaScript
+const Model = require('ilana-orm/orm/Model');
+
+class User extends Model {
+  static table = 'users';
+  static timestamps = true; // Automatically adds created_at and updated_at
+  
+  // Which fields can be filled when creating/updating
+  fillable = ['name', 'email', 'password'];
+  
+  // Hide sensitive fields from JSON output
+  hidden = ['password'];
+  
+  // Convert data types automatically
+  casts = {
+    email_verified_at: 'date',
+    is_active: 'boolean',
+  };
+}
+
+module.exports = User;
+```
+
+```typescript TypeScript
+import Model from 'ilana-orm/orm/Model';
+
+export default class User extends Model {
+  protected static table = 'users';
+  protected static timestamps = true;
+  
+  protected fillable: string[] = ['name', 'email', 'password'];
+  protected hidden: string[] = ['password'];
+  
+  protected casts = {
+    email_verified_at: 'date' as const,
+    is_active: 'boolean' as const,
+  };
+  
+  // Type your attributes
+  id!: number;
+  name!: string;
+  email!: string;
+  password!: string;
+  is_active!: boolean;
+  email_verified_at?: Date;
+  created_at!: Date;
+  updated_at!: Date;
+}
+```
+
+</CodeGroup>
+
+## Set Up Your Database Table
+
+Edit the migration file in `database/migrations/`:
+
+```javascript
+export default class CreateUsersTable {
+  async up(schema) {
+    await schema.createTable('users', function(table) {
+      table.increments('id');
+      table.string('name').notNullable();
+      table.string('email').unique().notNullable();
+      table.string('password').notNullable();
+      table.boolean('is_active').defaultTo(true);
+      table.timestamp('email_verified_at').nullable();
+      table.timestamps(true, true); // created_at, updated_at
+    });
+  }
+
+  async down(schema) {
+    await schema.dropTable('users');
+  }
+}
+```
+
+<Tip>
+**Understanding the Migration:**
+- `table.increments('id')` - Creates an auto-incrementing ID column
+- `table.string('name')` - Creates a text column for names
+- `table.unique()` - Ensures no duplicate values
+- `table.timestamps()` - Adds created_at and updated_at columns
+</Tip>
+
+## Run the Migration
+
+Create the table in your database:
+
+```bash
+npx ilana migrate
+```
+
+<Success>
+**Congratulations!** You now have a `users` table in your database and a `User` model to work with it.
+</Success>
+
+## Start Using Your Model
+
+Create a simple script to test your setup:
+
+```javascript test.js
+const User = require('./models/User');
+
+async function testUser() {
+  try {
+    // Create a new user
+    const user = await User.create({
+      name: 'John Doe',
+      email: 'john@example.com',
+      password: 'secret123'
+    });
+    
+    console.log('Created user:', user.toJSON());
+    
+    // Find the user
+    const foundUser = await User.find(user.id);
+    console.log('Found user:', foundUser.name);
+    
+    // Update the user
+    await foundUser.update({ name: 'John Smith' });
+    console.log('Updated user:', foundUser.name);
+    
+    // Get all users
+    const allUsers = await User.all();
+    console.log('Total users:', allUsers.length);
+    
+  } catch (error) {
+    console.error('Error:', error.message);
+  }
+}
+
+testUser();
+```
+
+Run your test:
+
+```bash
+node test.js
+```
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card
+    title="Learn About Models"
+    icon="cube"
+    href="/essentials/models"
+  >
+    Understand how models work and their features
+  </Card>
+  <Card
+    title="Query Your Data"
+    icon="magnifying-glass"
+    href="/essentials/queries"
+  >
+    Learn to find and filter your data
+  </Card>
+  <Card
+    title="Set Up Relationships"
+    icon="link"
+    href="/essentials/relationships"
+  >
+    Connect different types of data together
+  </Card>
+  <Card
+    title="Database Management"
+    icon="database"
+    href="/database/migrations"
+  >
+    Learn about migrations, seeds, and factories
+  </Card>
+</CardGroup>
+
+<Warning>
+**Having Issues?** Make sure you have Node.js installed and your database connection details are correct in `ilana.config.js`.
+</Warning>

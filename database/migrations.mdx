@@ -1,0 +1,652 @@
+---
+title: 'Migrations'
+description: 'Version control for your database schema'
+---
+
+## What are Migrations?
+
+Migrations are like version control for your database. They're scripts that create, modify, or delete database tables and columns in a structured way.
+
+<Info>
+**Real-world analogy:** Migrations are like renovation blueprints for a house. Each migration is a set of instructions to change the structure - add a room, remove a wall, install new plumbing. You can apply them in order or roll them back if needed.
+</Info>
+
+## Creating Migrations
+
+### Using the CLI
+
+```bash
+# Create a new table
+npx ilana make:migration create_users_table
+
+# Modify existing table
+npx ilana make:migration add_email_to_users --table=users
+
+# Create table with specific name
+npx ilana make:migration create_posts_table --create=posts
+```
+
+### Migration File Structure
+
+```javascript
+// database/migrations/20231201_120000_create_users_table.js
+import { SchemaBuilder } from "ilana-orm";
+
+export default class CreateUsersTable {
+  async up(schema) {
+    // What to do when running the migration
+    await schema.createTable('users', function(table) {
+      table.increments('id'); // Auto-incrementing primary key
+      table.string('name').notNullable();
+      table.string('email').unique().notNullable();
+      table.timestamps(true, true); // created_at, updated_at
+    });
+  }
+
+  async down(schema) {
+    // How to undo the migration
+    await schema.dropTable('users');
+  }
+}
+```
+
+<Tip>
+**Migration Naming:** IlanaORM automatically adds timestamps to migration names to ensure they run in the correct order.
+</Tip>
+
+## Creating Tables
+
+### Basic Table Creation
+
+```javascript
+export default class CreateUsersTable {
+  async up(schema) {
+    await schema.createTable('users', function(table) {
+    // Primary key
+    table.increments('id'); // Auto-incrementing integer primary key
+    
+    // String columns
+    table.string('name').notNullable();
+    table.string('email', 100).unique().notNullable(); // Max length 100
+    table.text('bio').nullable();
+    
+    // Number columns
+    table.integer('age').unsigned(); // Positive integers only
+    table.decimal('salary', 10, 2); // 10 total digits, 2 decimal places
+    table.float('rating'); // Floating point numbers
+    table.bigInteger('views'); // Large integers
+    
+    // Boolean column
+    table.boolean('is_active').defaultTo(true);
+    
+    // Date/Time columns
+    table.date('birth_date'); // Date only (YYYY-MM-DD)
+    table.datetime('last_login'); // Date and time
+    table.timestamp('email_verified_at').nullable(); // Unix timestamp
+    table.time('preferred_time'); // Time only (HH:MM:SS)
+    
+    // JSON column (PostgreSQL, MySQL 5.7+, SQLite 3.38+)
+    table.json('preferences');
+    
+    // Binary data
+    table.binary('avatar'); // Binary data
+    
+    // UUID column
+    table.uuid('external_id');
+    
+    // Timestamps (created_at, updated_at)
+    table.timestamps(true, true); // Adds both columns automatically
+    });
+  }
+}
+```
+
+### Column Types Reference
+
+#### Primary Keys
+| Method | SQL Type | Description | Example |
+|--------|----------|-------------|----------|
+| `increments(name)` | INTEGER AUTO_INCREMENT | Auto-incrementing primary key | `table.increments('id')` |
+| `bigIncrements(name)` | BIGINT AUTO_INCREMENT | Large auto-incrementing key | `table.bigIncrements('id')` |
+| `uuid(name)` | CHAR(36) | UUID column | `table.uuid('id').primary()` |
+
+#### String Types
+| Method | SQL Type | Description | Example |
+|--------|----------|-------------|----------|
+| `string(name, length)` | VARCHAR | Text with max length (default 255) | `table.string('name', 100)` |
+| `text(name)` | TEXT | Long text (up to 65,535 chars) | `table.text('description')` |
+| `mediumText(name)` | MEDIUMTEXT | Medium text (up to 16MB) | `table.mediumText('content')` |
+| `longText(name)` | LONGTEXT | Very long text (up to 4GB) | `table.longText('article')` |
+| `char(name, length)` | CHAR | Fixed-length string | `table.char('country_code', 2)` |
+
+#### Numeric Types
+| Method | SQL Type | Description | Example |
+|--------|----------|-------------|----------|
+| `integer(name)` | INTEGER | 32-bit integers (-2B to 2B) | `table.integer('age')` |
+| `bigInteger(name)` | BIGINT | 64-bit integers | `table.bigInteger('views')` |
+| `smallInteger(name)` | SMALLINT | 16-bit integers (-32K to 32K) | `table.smallInteger('priority')` |
+| `tinyInteger(name)` | TINYINT | 8-bit integers (-128 to 127) | `table.tinyInteger('status')` |
+| `decimal(name, precision, scale)` | DECIMAL | Exact decimal numbers | `table.decimal('price', 8, 2)` |
+| `float(name, precision, scale)` | FLOAT | Floating point numbers | `table.float('rating', 3, 2)` |
+| `double(name)` | DOUBLE | Double precision floats | `table.double('coordinates')` |
+
+#### Date/Time Types
+| Method | SQL Type | Description | Example |
+|--------|----------|-------------|----------|
+| `date(name)` | DATE | Date only (YYYY-MM-DD) | `table.date('birth_date')` |
+| `datetime(name)` | DATETIME | Date and time | `table.datetime('created_at')` |
+| `timestamp(name)` | TIMESTAMP | Unix timestamp | `table.timestamp('updated_at')` |
+| `time(name)` | TIME | Time only (HH:MM:SS) | `table.time('start_time')` |
+| `year(name)` | YEAR | Year only (1901-2155) | `table.year('graduation_year')` |
+
+#### Other Types
+| Method | SQL Type | Description | Example |
+|--------|----------|-------------|----------|
+| `boolean(name)` | BOOLEAN/TINYINT | True/false values | `table.boolean('is_active')` |
+| `json(name)` | JSON | JSON data | `table.json('metadata')` |
+| `jsonb(name)` | JSONB | Binary JSON (PostgreSQL) | `table.jsonb('settings')` |
+| `binary(name)` | BLOB | Binary data | `table.binary('file_data')` |
+| `enum(name, values)` | ENUM | Predefined values | `table.enum('status', ['active', 'inactive'])` |
+| `geometry(name)` | GEOMETRY | Spatial data | `table.geometry('location')` |
+| `point(name)` | POINT | Geographic point | `table.point('coordinates')` |
+
+### Column Modifiers
+
+```javascript
+table.string('email')
+  .notNullable()        // Cannot be null
+  .unique()             // Must be unique
+  .defaultTo('guest')   // Default value
+  .comment('User email address'); // Add comment
+
+table.integer('age')
+  .unsigned()           // Only positive numbers
+  .nullable();          // Can be null (default)
+
+table.string('status')
+  .defaultTo('active')
+  .index();             // Add database index
+
+// Chaining multiple modifiers
+table.decimal('price', 10, 2)
+  .unsigned()
+  .notNullable()
+  .defaultTo(0.00)
+  .comment('Product price in USD');
+```
+
+#### Available Modifiers
+| Modifier | Description | Example |
+|----------|-------------|----------|
+| `.notNullable()` | Column cannot be null | `table.string('name').notNullable()` |
+| `.nullable()` | Column can be null (default) | `table.string('bio').nullable()` |
+| `.defaultTo(value)` | Set default value | `table.boolean('active').defaultTo(true)` |
+| `.unique()` | Column values must be unique | `table.string('email').unique()` |
+| `.primary()` | Set as primary key | `table.uuid('id').primary()` |
+| `.unsigned()` | Only positive numbers | `table.integer('age').unsigned()` |
+| `.index()` | Add database index | `table.string('slug').index()` |
+| `.comment(text)` | Add column comment | `table.string('name').comment('Full name')` |
+| `.after(column)` | Position after column (MySQL) | `table.string('middle_name').after('first_name')` |
+| `.first()` | Position as first column (MySQL) | `table.string('id').first()` |
+
+## Modifying Tables
+
+### Adding Columns
+
+```javascript
+// Migration: add_columns_to_users_table.js
+export default class AddColumnsToUsersTable {
+  async up(schema) {
+    await schema.table('users', function(table) {
+      table.string('phone').nullable();
+      table.text('address').nullable();
+      table.boolean('is_verified').defaultTo(false);
+    });
+  }
+
+  async down(schema) {
+    await schema.table('users', function(table) {
+      table.dropColumn(['phone', 'address', 'is_verified']);
+    });
+  }
+}
+```
+
+### Modifying Columns
+
+```javascript
+export default class ModifyUsersTable {
+  async up(schema) {
+    await schema.table('users', function(table) {
+      // Change column type
+      table.text('bio').alter();
+      
+      // Rename column
+      table.renameColumn('full_name', 'name');
+      
+      // Modify column properties
+      table.string('email', 150).notNullable().alter();
+    });
+  }
+}
+```
+
+### Dropping Columns
+
+```javascript
+export default class DropColumnsFromUsersTable {
+  async up(schema) {
+    await schema.table('users', function(table) {
+      table.dropColumn('old_field');
+      table.dropColumn(['field1', 'field2']); // Drop multiple
+    });
+  }
+}
+```
+
+## Indexes and Constraints
+
+### Creating Indexes
+
+```javascript
+export default class CreatePostsTable {
+  async up(schema) {
+    await schema.createTable('posts', function(table) {
+    table.increments('id');
+    table.string('title');
+    table.text('content');
+    table.integer('user_id').unsigned();
+    table.string('status');
+    table.timestamps(true, true);
+    
+    // Single column index
+    table.index('user_id');
+    table.index('status');
+    
+    // Composite index
+    table.index(['user_id', 'status'], 'posts_user_status_index');
+    
+    // Unique index
+    table.unique(['user_id', 'title']);
+    });
+  }
+}
+```
+
+### Foreign Key Constraints
+
+```javascript
+export default class CreatePostsTable {
+  async up(schema) {
+    await schema.createTable('posts', function(table) {
+    table.increments('id');
+    table.string('title');
+    table.integer('user_id').unsigned().notNullable();
+    table.integer('category_id').unsigned().nullable();
+    
+    // Foreign key constraints
+    table.foreign('user_id').references('id').inTable('users').onDelete('CASCADE');
+    table.foreign('category_id').references('id').inTable('categories').onDelete('SET NULL');
+    });
+  }
+}
+```
+
+### Constraint Actions
+
+| Action | Description |
+|--------|-------------|
+| `CASCADE` | Delete related records |
+| `SET NULL` | Set foreign key to null |
+| `RESTRICT` | Prevent deletion if related records exist |
+| `NO ACTION` | Do nothing (database default) |
+
+## UUID Primary Keys
+
+```javascript
+export default class CreateUsersTable {
+  async up(schema) {
+    await schema.createTable('users', function(table) {
+      table.uuid('id').primary().defaultTo(schema.raw('gen_random_uuid()')); // PostgreSQL
+      // table.uuid('id').primary(); // For other databases with UUID generation in app
+      
+      table.string('name');
+      table.string('email').unique();
+      table.timestamps(true, true);
+    });
+  }
+}
+```
+
+## Pivot Tables for Many-to-Many
+
+```javascript
+// Migration: create_post_tags_table.js
+export default class CreatePostTagsTable {
+  async up(schema) {
+    await schema.createTable('post_tags', function(table) {
+      table.increments('id');
+      table.integer('post_id').unsigned().notNullable();
+      table.integer('tag_id').unsigned().notNullable();
+      table.timestamps(true, true);
+      
+      // Foreign keys
+      table.foreign('post_id').references('id').inTable('posts').onDelete('CASCADE');
+      table.foreign('tag_id').references('id').inTable('tags').onDelete('CASCADE');
+      
+      // Prevent duplicate relationships
+      table.unique(['post_id', 'tag_id']);
+    });
+  }
+}
+```
+
+## Polymorphic Tables
+
+```javascript
+// Migration: create_comments_table.js
+export default class CreateCommentsTable {
+  async up(schema) {
+    await schema.createTable('comments', function(table) {
+      table.increments('id');
+      table.text('content').notNullable();
+      table.integer('user_id').unsigned().notNullable();
+      
+      // Polymorphic columns
+      table.integer('commentable_id').unsigned().notNullable();
+      table.string('commentable_type').notNullable();
+      
+      table.timestamps(true, true);
+      
+      // Foreign key for user
+      table.foreign('user_id').references('id').inTable('users').onDelete('CASCADE');
+      
+      // Index for polymorphic relationship
+      table.index(['commentable_id', 'commentable_type']);
+    });
+  }
+}
+```
+
+## Running Migrations
+
+### Basic Commands
+
+```bash
+# Run all pending migrations
+npx ilana migrate
+
+# Run migrations on specific connection
+npx ilana migrate --connection=postgres
+
+# Run specific migration file
+npx ilana migrate --only=20231201_create_users_table.js
+
+# Run migrations up to specific batch
+npx ilana migrate --to=20231201_120000
+```
+
+### Rollback Migrations
+
+```bash
+# Rollback last batch
+npx ilana migrate:rollback
+
+# Rollback specific number of batches
+npx ilana migrate:rollback --step=2
+
+# Rollback to specific migration
+npx ilana migrate:rollback --to=20231201_120000
+
+# Rollback all migrations
+npx ilana migrate:reset
+```
+
+### Fresh Migrations
+
+```bash
+# Drop all tables and re-run migrations
+npx ilana migrate:fresh
+
+# Fresh migration with seeding
+npx ilana migrate:fresh --seed
+```
+
+### Migration Status
+
+```bash
+# Check migration status
+npx ilana migrate:status
+
+# List completed migrations
+npx ilana migrate:list
+
+# Unlock migrations (if stuck)
+npx ilana migrate:unlock
+```
+
+## Advanced Migration Patterns
+
+### Conditional Migrations
+
+```javascript
+export default class AddEmailVerificationToUsers {
+  async up(schema) {
+    const hasColumn = await schema.hasColumn('users', 'email_verified_at');
+    
+    if (!hasColumn) {
+      await schema.table('users', function(table) {
+        table.timestamp('email_verified_at').nullable();
+      });
+    }
+  }
+}
+```
+
+### Data Migrations
+
+```javascript
+export default class AddFullNameToUsers {
+  async up(schema) {
+    // First, add the new column
+    await schema.table('users', function(table) {
+      table.string('full_name').nullable();
+    });
+    
+    // Then, populate it with existing data
+    const users = await schema.raw('SELECT id, first_name, last_name FROM users');
+    
+    for (const user of users.rows || users) {
+      await schema.raw('UPDATE users SET full_name = ? WHERE id = ?', [
+        `${user.first_name} ${user.last_name}`,
+        user.id
+      ]);
+    }
+    
+    // Finally, make it not nullable
+    await schema.table('users', function(table) {
+      table.string('full_name').notNullable().alter();
+    });
+  }
+}
+```
+
+### Raw SQL in Migrations
+
+```javascript
+export default class CreateEmailLowerIndex {
+  async up(schema) {
+    await schema.raw(`
+      CREATE INDEX CONCURRENTLY idx_users_email_lower 
+      ON users (LOWER(email))
+    `);
+  }
+
+  async down(schema) {
+    await schema.raw('DROP INDEX IF EXISTS idx_users_email_lower');
+  }
+}
+```
+
+## Database-Specific Features
+
+### PostgreSQL
+
+```javascript
+export default class CreateUsersTable {
+  async up(schema) {
+    await schema.createTable('users', function(table) {
+      table.uuid('id').primary().defaultTo(schema.raw('gen_random_uuid()'));
+      table.string('email').unique();
+      table.jsonb('preferences'); // JSONB for better performance
+      table.specificType('tags', 'text[]'); // Array type
+      table.timestamps(true, true);
+    });
+  }
+}
+```
+
+### MySQL
+
+```javascript
+export default class CreateUsersTable {
+  async up(schema) {
+    await schema.createTable('users', function(table) {
+      table.increments('id');
+      table.string('email').unique();
+      table.json('preferences');
+      table.timestamps(true, true);
+    }).charset('utf8mb4').collate('utf8mb4_unicode_ci'); // Support emojis
+  }
+}
+```
+
+## Migration Best Practices
+
+### 1. Always Write Down Methods
+
+```javascript
+// ✅ Good - can be rolled back
+export default class CreateUsersTable {
+  async up(schema) {
+    await schema.createTable('users', function(table) {
+      // ... table definition
+    });
+  }
+
+  async down(schema) {
+    await schema.dropTable('users');
+  }
+}
+
+// ❌ Bad - can't be rolled back
+export default class CreateUsersTable {
+  async up(schema) {
+    // ... table definition
+  }
+
+  async down(schema) {
+    // Empty or missing
+  }
+}
+```
+
+### 2. Use Descriptive Names
+
+```javascript
+// ✅ Good
+create_users_table.js
+add_email_verification_to_users.js
+create_post_tags_pivot_table.js
+
+// ❌ Bad
+migration1.js
+update_users.js
+new_table.js
+```
+
+### 3. Test Migrations Both Ways
+
+```bash
+# Test up
+npx ilana migrate
+
+# Test down
+npx ilana migrate:rollback
+
+# Test up again
+npx ilana migrate
+```
+
+### 4. Keep Migrations Small
+
+```javascript
+// ✅ Good - one change per migration
+// Migration 1: create_users_table.js
+// Migration 2: add_email_to_users.js
+// Migration 3: create_posts_table.js
+
+// ❌ Bad - too many changes
+// Migration 1: create_all_tables.js (creates 10 tables)
+```
+
+### 5. Don't Modify Old Migrations
+
+```javascript
+// ❌ Don't edit existing migrations that have been run
+// Instead, create a new migration to make changes
+
+// ✅ Create new migration
+npx ilana make:migration add_phone_to_users --table=users
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Migration Already Exists" icon="exclamation-triangle">
+    **Problem:** Error saying migration already exists
+    
+    **Solutions:**
+    - Check if migration was already run: `npx ilana migrate:status`
+    - Use different migration name
+    - Roll back if needed: `npx ilana migrate:rollback`
+  </Accordion>
+  
+  <Accordion title="Foreign Key Constraint Error" icon="database">
+    **Problem:** Cannot create foreign key constraint
+    
+    **Solutions:**
+    - Ensure referenced table exists first
+    - Check column types match (both should be same type)
+    - Verify referenced column exists
+    - Run migrations in correct order
+  </Accordion>
+  
+  <Accordion title="Column Already Exists" icon="columns">
+    **Problem:** Column already exists error
+    
+    **Solutions:**
+    - Check if column exists: `schema.hasColumn()`
+    - Use conditional migration
+    - Check migration history: `npx ilana migrate:list`
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Database Seeders"
+    icon="seedling"
+    href="/database/seeders"
+  >
+    Learn to populate your database with sample data
+  </Card>
+  <Card
+    title="Model Factories"
+    icon="industry"
+    href="/database/factories"
+  >
+    Generate realistic test data automatically
+  </Card>
+</CardGroup>

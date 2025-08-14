@@ -1,0 +1,380 @@
+---
+title: 'Development'
+description: 'Set up your development environment for IlanaORM'
+---
+
+## Understanding Database Basics
+
+Before diving into IlanaORM, let's understand some key concepts:
+
+<AccordionGroup>
+  <Accordion title="What is a Database?" icon="database">
+    A database is like a digital filing cabinet that stores information in an organized way. Instead of paper files, it stores data in **tables**.
+  </Accordion>
+  
+  <Accordion title="What are Tables?" icon="table">
+    Tables are like spreadsheets with rows and columns:
+    - **Columns** define what type of information you store (name, email, age)
+    - **Rows** contain the actual data for each record
+  </Accordion>
+  
+  <Accordion title="What is an ORM?" icon="gear">
+    ORM stands for Object-Relational Mapping. It's a tool that lets you work with database data using regular JavaScript objects instead of writing SQL queries.
+    
+    **Without ORM (SQL):**
+    ```sql
+    SELECT * FROM users WHERE age > 18;
+    ```
+    
+    **With ORM (JavaScript):**
+    ```javascript
+    const users = await User.where('age', '>', 18).get();
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Project Structure
+
+After running `npx ilana setup`, your project will have this structure:
+
+```
+your-project/
+├── models/              # Your data models
+├── database/
+│   ├── migrations/      # Database table definitions
+│   ├── seeds/          # Sample data
+│   └── factories/      # Data generators
+├── ilana.config.js     # Database configuration
+└── .env               # Environment variables
+```
+
+<Info>
+**Think of it like organizing a library:**
+- `models/` - The catalog system (how you find books)
+- `migrations/` - The blueprints for building shelves
+- `seeds/` - The initial books you put on shelves
+- `factories/` - The system for generating fake books for testing
+</Info>
+
+## Environment Setup
+
+### 1. Environment Variables
+
+Create a `.env` file in your project root:
+
+```bash .env
+# Database Configuration
+DB_CONNECTION=sqlite
+DB_FILENAME=./database.sqlite
+
+# For MySQL/PostgreSQL
+# DB_HOST=localhost
+# DB_PORT=3306
+# DB_DATABASE=your_database
+# DB_USERNAME=your_username
+# DB_PASSWORD=your_password
+# DB_TIMEZONE=UTC
+
+# Application
+NODE_ENV=development
+```
+
+### 2. Configuration File
+
+Your `ilana.config.js` should load environment variables:
+
+```javascript ilana.config.js
+require('dotenv').config();
+
+module.exports = {
+  default: process.env.DB_CONNECTION || 'sqlite',
+  
+  connections: {
+    sqlite: {
+      client: 'sqlite3',
+      connection: {
+        filename: process.env.DB_FILENAME || './database.sqlite',
+      },
+      useNullAsDefault: true,
+    },
+    
+    mysql: {
+      client: 'mysql2',
+      connection: {
+        host: process.env.DB_HOST,
+        port: process.env.DB_PORT,
+        user: process.env.DB_USERNAME,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_DATABASE,
+        timezone: process.env.DB_TIMEZONE || 'UTC',
+      },
+    },
+    
+    postgres: {
+      client: 'pg',
+      connection: {
+        host: process.env.DB_HOST,
+        port: process.env.DB_PORT,
+        user: process.env.DB_USERNAME,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_DATABASE,
+      },
+    },
+  },
+  
+  migrations: {
+    directory: './database/migrations',
+    tableName: 'migrations',
+  },
+  
+  seeds: {
+    directory: './database/seeds',
+  },
+};
+```
+
+## Development Workflow
+
+### 1. Plan Your Data Structure
+
+Before coding, think about what data you need:
+
+```
+Blog Example:
+- Users (authors)
+- Posts (articles)
+- Comments (on posts)
+- Categories (for organizing posts)
+```
+
+### 2. Create Models and Migrations
+
+```bash
+# Create models with migrations
+npx ilana make:model User --migration
+npx ilana make:model Post --migration
+npx ilana make:model Comment --migration
+npx ilana make:model Category --migration
+```
+
+### 3. Define Your Database Schema
+
+Edit the migration files to define your table structure:
+
+```javascript create_users_table.js
+export default class CreateUsersTable {
+  async up(schema) {
+    await schema.createTable('users', function(table) {
+      table.increments('id');
+      table.string('name').notNullable();
+      table.string('email').unique().notNullable();
+      table.string('password').notNullable();
+      table.boolean('is_active').defaultTo(true);
+      table.timestamps(true, true);
+    });
+  }
+  
+  async down(schema) {
+    await schema.dropTable('users');
+  }
+}
+```
+
+### 4. Run Migrations
+
+```bash
+npx ilana migrate
+```
+
+### 5. Create Seeders (Optional)
+
+Generate sample data for development:
+
+```bash
+npx ilana make:seeder UserSeeder
+```
+
+```javascript UserSeeder.js
+const Seeder = require('ilana-orm/orm/Seeder');
+const User = require('../../models/User');
+
+class UserSeeder extends Seeder {
+  async run() {
+    // Create admin user
+    await User.create({
+      name: 'Admin User',
+      email: 'admin@example.com',
+      password: 'password',
+      role: 'admin',
+    });
+    
+    // Create test users using factory
+    await User.factory().times(10).create();
+  }
+}
+
+module.exports = UserSeeder;
+```
+
+Run seeders:
+
+```bash
+npx ilana seed
+```
+
+## Development Best Practices
+
+### 1. Use Descriptive Names
+
+```javascript
+// ✅ Good
+class BlogPost extends Model {
+  static table = 'blog_posts';
+}
+
+// ❌ Avoid
+class BP extends Model {
+  static table = 'bp';
+}
+```
+
+### 2. Define Relationships Early
+
+```javascript
+class User extends Model {
+  posts() {
+    return this.hasMany('Post');
+  }
+  
+  comments() {
+    return this.hasMany('Comment');
+  }
+}
+```
+
+### 3. Use Factories for Testing
+
+```bash
+npx ilana make:factory UserFactory
+```
+
+```javascript UserFactory.js
+const { defineFactory } = require('ilana-orm/orm/Factory');
+const { faker } = require('@faker-js/faker');
+const User = require('../../models/User');
+
+module.exports = defineFactory(User, () => ({
+  name: faker.person.fullName(),
+  email: faker.internet.email(),
+  password: 'secret123',
+  is_active: true,
+}));
+```
+
+### 4. Handle Errors Gracefully
+
+```javascript
+async function createUser(userData) {
+  try {
+    const user = await User.create(userData);
+    return { success: true, user };
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return { success: false, error: 'Email already exists' };
+    }
+    return { success: false, error: 'Failed to create user' };
+  }
+}
+```
+
+## Common Development Commands
+
+<CodeGroup>
+
+```bash Model Operations
+# Create model with migration
+npx ilana make:model Product --migration
+
+# Create model with everything
+npx ilana make:model Order --all
+```
+
+```bash Database Operations
+# Run migrations
+npx ilana migrate
+
+# Rollback last migration
+npx ilana migrate:rollback
+
+# Reset database
+npx ilana migrate:reset
+
+# Fresh migration with seeds
+npx ilana migrate:fresh --seed
+```
+
+```bash Data Operations
+# Create seeder
+npx ilana make:seeder ProductSeeder
+
+# Run all seeders
+npx ilana seed
+
+# Create factory
+npx ilana make:factory ProductFactory
+```
+
+</CodeGroup>
+
+## Debugging Tips
+
+### 1. Enable Query Logging
+
+```javascript ilana.config.js
+module.exports = {
+  // ... other config
+  debug: process.env.NODE_ENV === 'development',
+  
+  connections: {
+    sqlite: {
+      // ... connection config
+      debug: true, // Log all queries
+    },
+  },
+};
+```
+
+### 2. Check Migration Status
+
+```bash
+npx ilana migrate:status
+```
+
+### 3. Inspect Your Database
+
+For SQLite, you can use tools like:
+- [DB Browser for SQLite](https://sqlitebrowser.org/)
+- [SQLite Viewer Online](https://sqliteviewer.app/)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Learn Models"
+    icon="cube"
+    href="/essentials/models"
+  >
+    Understand how to define and use models
+  </Card>
+  <Card
+    title="Database Configuration"
+    icon="gear"
+    href="/essentials/configuration"
+  >
+    Advanced configuration options
+  </Card>
+</CardGroup>
+
+<Tip>
+**Pro Tip:** Start with SQLite for development. It's file-based, requires no setup, and you can easily reset it by deleting the `.sqlite` file.
+</Tip>

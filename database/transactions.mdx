@@ -1,0 +1,480 @@
+---
+title: "Database Transactions"
+description: "Ensure data consistency with database transactions"
+---
+
+## What are Transactions?
+
+Database transactions ensure that multiple database operations either all succeed or all fail together. This prevents your data from getting into an inconsistent state.
+
+<Info>
+  **Real-world analogy:** A transaction is like transferring money between bank
+  accounts. Either both the withdrawal from one account AND the deposit to
+  another account succeed, or neither happens. You can't have money disappear or
+  appear out of nowhere.
+</Info>
+
+## Basic Transaction Usage
+
+### Laravel-Style Callback Transactions
+
+```javascript
+const { DB } = require("ilana-orm");
+
+// Simple transaction with automatic management
+await DB.transaction(async () => {
+  const user = await User.create({
+    name: "John Doe",
+    email: "john@example.com",
+  });
+
+  await user.profile().create({
+    bio: "Software developer",
+  });
+
+  await user.posts().create({
+    title: "My first post",
+    content: "Hello world!",
+  });
+
+  // All operations automatically use the same transaction
+  // Commits automatically if no errors, rolls back on exceptions
+});
+```
+
+### Transaction with Retry Logic
+
+```javascript
+// Automatically retry on deadlock/serialization failures
+await DB.transaction(async () => {
+  const order = await Order.create({
+    user_id: 1,
+    total: 99.99,
+    status: "pending",
+  });
+
+  await OrderItem.create({
+    order_id: order.id,
+    product_id: 1,
+    quantity: 2,
+    price: 49.99,
+  });
+
+  await Product.where("id", 1).decrement("stock_quantity", 2);
+}, 3); // Retry up to 3 times
+```
+
+### Manual Transaction Control
+
+```javascript
+const trx = await DB.beginTransaction();
+
+try {
+  const order = await Order.create({
+    user_id: 1,
+    total: 99.99,
+    status: "pending",
+  });
+
+  await OrderItem.create({
+    order_id: order.id,
+    product_id: 1,
+    quantity: 2,
+    price: 49.99,
+  });
+
+  await Product.where("id", 1).decrement("stock_quantity", 2);
+
+  await DB.commit();
+  console.log("Order created successfully");
+} catch (error) {
+  await DB.rollback();
+  console.error("Order creation failed:", error);
+  throw error;
+}
+```
+
+## Transaction with Models
+
+### Automatic Transaction Detection
+
+```javascript
+class User extends Model {
+  static async createWithProfile(userData, profileData) {
+    return await DB.transaction(async () => {
+      // Models automatically detect and use current transaction
+      const user = await this.create(userData);
+      const profile = await user.profile().create(profileData);
+
+      return { user, profile };
+    });
+  }
+}
+
+// Usage
+const { user, profile } = await User.createWithProfile(
+  { name: "John", email: "john@example.com" },
+  { bio: "Developer", website: "john.dev" }
+);
+```
+
+### Explicit Transaction Passing
+
+```javascript
+// When you need explicit control
+const trx = await DB.beginTransaction();
+
+try {
+  const user = await User.on(trx).create(userData);
+  const profile = await Profile.on(trx).create(profileData);
+
+  await DB.commit();
+} catch (error) {
+  await DB.rollback();
+  throw error;
+}
+```
+
+### Transaction in Model Events
+
+```javascript
+class Order extends Model {
+  static {
+    this.created(async (order) => {
+      await DB.transaction(async () => {
+        // Update inventory
+        for (const item of order.items) {
+          await Product.where("id", item.product_id).decrement(
+            "stock_quantity",
+            item.quantity
+          );
+        }
+
+        // Create audit log
+        await AuditLog.create({
+          action: "order_created",
+          order_id: order.id,
+          user_id: order.user_id,
+        });
+      });
+    });
+  }
+}
+```
+
+## Multiple Database Connections
+
+### Connection-Specific Transactions
+
+```javascript
+// Transaction on specific connection
+await DB.transaction(
+  async () => {
+    // Operations on analytics database
+    await AnalyticsEvent.create({ event: "user_signup" });
+    await UserMetrics.create({ user_id: 1, action: "signup" });
+  },
+  1,
+  "analytics_db"
+);
+
+// Manual transaction on specific connection
+const trx = await DB.beginTransaction("postgres_analytics");
+
+try {
+  await AnalyticsEvent.on("postgres_analytics").create({ event: "conversion" });
+  await DB.commit();
+} catch (error) {
+  await DB.rollback();
+  throw error;
+}
+```
+
+## Advanced Transaction Patterns
+
+### Batch Operations in Transactions
+
+```javascript
+async function processBulkOrders(orders) {
+  return await DB.transaction(async () => {
+    const results = [];
+
+    // Process in batches to avoid memory issues
+    const batchSize = 100;
+    for (let i = 0; i < orders.length; i += batchSize) {
+      const batch = orders.slice(i, i + batchSize);
+
+      const batchResults = await Promise.all(
+        batch.map(async (orderData) => {
+          const order = await Order.create(orderData);
+
+          await OrderItem.insert(
+            orderData.items.map((item) => ({
+              ...item,
+              order_id: order.id,
+            }))
+          );
+
+          return order;
+        })
+      );
+
+      results.push(...batchResults);
+    }
+
+    return results;
+  });
+}
+```
+
+## Error Handling and Rollbacks
+
+### Automatic Rollback
+
+```javascript
+try {
+  await DB.transaction(async () => {
+    await User.create({ name: "John" });
+
+    // This will cause automatic rollback
+    throw new Error("Something went wrong");
+
+    // This won't execute
+    await User.create({ name: "Jane" });
+  });
+} catch (error) {
+  console.log("Transaction rolled back:", error.message);
+  // No users were created
+}
+```
+
+### Conditional Operations
+
+```javascript
+await DB.transaction(async () => {
+  const user = await User.create({
+    name: "John Doe",
+    email: "john@example.com",
+  });
+
+  try {
+    await sendWelcomeEmail(user.email);
+  } catch (emailError) {
+    console.log("Email failed, rolling back user creation");
+    throw emailError; // This will rollback the transaction
+  }
+
+  // Only commit if email was sent successfully
+});
+```
+
+## Performance Considerations
+
+### Keep Transactions Short
+
+```javascript
+// ❌ Bad - long-running transaction
+await DB.transaction(async () => {
+  const users = await User.all();
+
+  for (const user of users) {
+    // Expensive operation that takes time
+    await processUserData(user);
+    await user.update({ processed: true });
+  }
+});
+
+// ✅ Good - short transactions
+const users = await User.all();
+
+for (const user of users) {
+  await processUserData(user);
+
+  // Quick transaction just for the update
+  await DB.transaction(async () => {
+    await user.update({ processed: true });
+  });
+}
+```
+
+### Batch Related Operations
+
+```javascript
+// ✅ Good - batch operations in single transaction
+await DB.transaction(async () => {
+  const order = await Order.create(orderData);
+
+  // Insert all items at once
+  await OrderItem.insert(
+    orderData.items.map((item) => ({
+      ...item,
+      order_id: order.id,
+    }))
+  );
+
+  // Update all products at once
+  for (const item of orderData.items) {
+    await Product.where("id", item.product_id).decrement(
+      "stock_quantity",
+      item.quantity
+    );
+  }
+});
+```
+
+## Common Transaction Patterns
+
+### Money Transfer
+
+```javascript
+async function transferMoney(fromAccountId, toAccountId, amount) {
+  return await DB.transaction(async () => {
+    // Lock accounts to prevent concurrent modifications
+    const fromAccount = await Account.where("id", fromAccountId)
+      .lockForUpdate()
+      .first();
+
+    const toAccount = await Account.where("id", toAccountId)
+      .lockForUpdate()
+      .first();
+
+    if (fromAccount.balance < amount) {
+      throw new Error("Insufficient funds");
+    }
+
+    // Perform transfer
+    await fromAccount.decrement("balance", amount);
+    await toAccount.increment("balance", amount);
+
+    // Create transaction record
+    await Transaction.create({
+      from_account_id: fromAccountId,
+      to_account_id: toAccountId,
+      amount: amount,
+      type: "transfer",
+    });
+
+    return { fromAccount, toAccount };
+  });
+}
+```
+
+### Inventory Management
+
+```javascript
+async function processOrder(orderData) {
+  return await DB.transaction(async () => {
+    const order = await Order.create({
+      user_id: orderData.user_id,
+      status: "processing",
+    });
+
+    let totalAmount = 0;
+
+    for (const item of orderData.items) {
+      const product = await Product.where("id", item.product_id)
+        .lockForUpdate()
+        .first();
+
+      if (product.stock_quantity < item.quantity) {
+        throw new Error(`Insufficient stock for ${product.name}`);
+      }
+
+      await product.decrement("stock_quantity", item.quantity);
+
+      await OrderItem.create({
+        order_id: order.id,
+        product_id: item.product_id,
+        quantity: item.quantity,
+        price: product.price,
+      });
+
+      totalAmount += product.price * item.quantity;
+    }
+
+    await order.update({
+      total: totalAmount,
+      status: "confirmed",
+    });
+
+    return order;
+  });
+}
+```
+
+## Best Practices
+
+### 1. Use Callback Style for Automatic Management
+
+```javascript
+// ✅ Good - automatic management
+await DB.transaction(async () => {
+  await User.create(userData);
+  await Profile.create(profileData);
+});
+
+// ❌ Avoid manual control unless necessary
+const trx = await DB.beginTransaction();
+try {
+  await User.create(userData);
+  await Profile.create(profileData);
+  await DB.commit();
+} catch (error) {
+  await DB.rollback();
+  throw error;
+}
+```
+
+### 2. Specify Retry Attempts for Critical Operations
+
+```javascript
+// ✅ Good - retry on deadlocks
+await DB.transaction(async () => {
+  await processPayment(paymentData);
+  await updateInventory(items);
+}, 3); // Retry up to 3 times
+```
+
+### 3. Keep External Operations Outside Transactions
+
+```javascript
+// ✅ Good
+await DB.transaction(async () => {
+  const user = await User.create(userData);
+  await Profile.create(profileData);
+});
+
+// Send email after transaction commits
+await sendWelcomeEmail(user.email);
+
+// ❌ Bad - includes external API call
+await DB.transaction(async () => {
+  const user = await User.create(userData);
+  await sendWelcomeEmail(user.email); // External API call
+  await Profile.create(profileData);
+});
+```
+
+### 4. Avoid Transactions for Read-Only Operations
+
+```javascript
+// ❌ Unnecessary transaction
+await DB.transaction(async () => {
+  const users = await User.all(); // No need for transaction
+  return users;
+});
+
+// ✅ Good - no transaction needed
+const users = await User.all();
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Database Connections" icon="plug" href="/database/connections">
+    Learn about managing multiple database connections
+  </Card>
+  <Card title="Advanced Events" icon="bolt" href="/advanced/events">
+    Hook into model lifecycle with events
+  </Card>
+</CardGroup>

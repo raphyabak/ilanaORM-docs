@@ -1,0 +1,539 @@
+---
+title: 'Configuration'
+description: 'Configure IlanaORM for different environments and databases'
+---
+
+## Basic Configuration
+
+The `ilana.config.js` file is the heart of your IlanaORM setup. Think of it as the control panel for your database connections.
+
+```javascript ilana.config.js
+module.exports = {
+  // Which database connection to use by default
+  default: "sqlite",
+  
+  // Define your database connections
+  connections: {
+    sqlite: {
+      client: "sqlite3",
+      connection: {
+        filename: "./database.sqlite",
+      },
+    },
+  },
+  
+  // Where to store migration files
+  migrations: {
+    directory: "./database/migrations",
+  },
+  
+  // Where to store seed files
+  seeds: {
+    directory: "./database/seeds",
+  },
+};
+```
+
+<Info>
+**What's happening here?**
+- `default` - Which database to use when you don't specify one
+- `connections` - Different databases you can connect to
+- `migrations` - Where your table blueprints are stored
+- `seeds` - Where your sample data scripts are stored
+</Info>
+
+## Database Connections
+
+### SQLite (Perfect for Beginners)
+
+SQLite creates a simple file-based database - no server required!
+
+```javascript
+sqlite: {
+  client: "sqlite3",
+  connection: {
+    filename: "./database.sqlite", // Creates a file in your project
+  },
+  useNullAsDefault: true, // SQLite-specific setting
+}
+```
+
+<Tip>
+**Why SQLite for learning?**
+- No installation required
+- No server to manage
+- Easy to reset (just delete the file)
+- Perfect for development and testing
+</Tip>
+
+### MySQL
+
+For production applications or when you need advanced features:
+
+```javascript
+mysql: {
+  client: "mysql2",
+  connection: {
+    host: "localhost",     // Database server address
+    port: 3306,           // MySQL default port
+    user: "your_username",
+    password: "your_password",
+    database: "your_database_name",
+    charset: "utf8mb4",   // Support for emojis and special characters
+    timezone: "UTC",      // Database timezone (important for timestamps)
+  },
+  pool: {
+    min: 2,              // Minimum connections to keep open
+    max: 10,             // Maximum connections allowed
+  },
+}
+```
+
+### PostgreSQL
+
+Great for complex applications with advanced data types:
+
+```javascript
+postgres: {
+  client: "pg",
+  connection: {
+    host: "localhost",
+    port: 5432,           // PostgreSQL default port
+    user: "your_username",
+    password: "your_password",
+    database: "your_database_name",
+  },
+  pool: {
+    min: 2,
+    max: 10,
+  },
+}
+```
+
+## Environment-Based Configuration
+
+Use environment variables to keep sensitive information secure:
+
+### 1. Create Environment Files
+
+<CodeGroup>
+
+```bash .env.development
+DB_CONNECTION=sqlite
+DB_FILENAME=./dev-database.sqlite
+```
+
+```bash .env.production
+DB_CONNECTION=mysql
+DB_HOST=production-server.com
+DB_PORT=3306
+DB_DATABASE=production_db
+DB_USERNAME=prod_user
+DB_PASSWORD=secure_password
+DB_TIMEZONE=UTC
+```
+
+```bash .env.test
+DB_CONNECTION=sqlite
+DB_FILENAME=:memory:
+```
+
+</CodeGroup>
+
+### 2. Load Environment Variables
+
+```javascript ilana.config.js
+require('dotenv').config();
+
+module.exports = {
+  default: process.env.DB_CONNECTION || 'sqlite',
+  
+  connections: {
+    sqlite: {
+      client: 'sqlite3',
+      connection: {
+        filename: process.env.DB_FILENAME || './database.sqlite',
+      },
+      useNullAsDefault: true,
+    },
+    
+    mysql: {
+      client: 'mysql2',
+      connection: {
+        host: process.env.DB_HOST,
+        port: process.env.DB_PORT || 3306,
+        user: process.env.DB_USERNAME,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_DATABASE,
+        timezone: process.env.DB_TIMEZONE || 'UTC',
+      },
+    },
+    
+    postgres: {
+      client: 'pg',
+      connection: {
+        host: process.env.DB_HOST,
+        port: process.env.DB_PORT || 5432,
+        user: process.env.DB_USERNAME,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_DATABASE,
+      },
+    },
+  },
+  
+  migrations: {
+    directory: './database/migrations',
+  },
+  
+  seeds: {
+    directory: './database/seeds',
+  },
+};
+```
+
+<Warning>
+**Security Note:** Never commit `.env` files with real passwords to version control. Add `.env` to your `.gitignore` file.
+</Warning>
+
+## Multiple Database Connections
+
+You can connect to multiple databases simultaneously:
+
+```javascript
+module.exports = {
+  default: "main_db",
+  
+  connections: {
+    main_db: {
+      client: "mysql2",
+      connection: {
+        host: "main-server.com",
+        database: "main_database",
+        // ... other settings
+      },
+    },
+    
+    analytics_db: {
+      client: "postgres",
+      connection: {
+        host: "analytics-server.com",
+        database: "analytics_database",
+        // ... other settings
+      },
+    },
+    
+    cache_db: {
+      client: "sqlite3",
+      connection: {
+        filename: "./cache.sqlite",
+      },
+    },
+  },
+};
+```
+
+### Using Different Connections
+
+```javascript
+// Use default connection
+const users = await User.all();
+
+// Use specific connection
+const analytics = await AnalyticsModel.on('analytics_db').all();
+
+// Run migration on specific connection
+npx ilana migrate --connection=analytics_db
+```
+
+## Timezone Configuration
+
+Timezone handling is crucial for applications with users across different time zones:
+
+```javascript
+module.exports = {
+  // Global timezone setting
+  timezone: process.env.DB_TIMEZONE || 'UTC',
+  
+  connections: {
+    mysql: {
+      client: 'mysql2',
+      connection: {
+        host: 'localhost',
+        database: 'myapp',
+        user: 'root',
+        password: 'password',
+        timezone: 'UTC', // Store all timestamps in UTC
+      },
+    },
+  },
+};
+```
+
+### Environment Variable
+
+Set the timezone in your `.env` file:
+
+```bash .env
+DB_TIMEZONE=UTC
+# Or use specific timezone
+# DB_TIMEZONE=America/New_York
+# DB_TIMEZONE=Europe/London
+# DB_TIMEZONE=Asia/Tokyo
+```
+
+<Warning>
+**Best Practice:** Always use UTC in your database and convert to user's local timezone in your application. This prevents confusion when users are in different time zones.
+</Warning>
+
+### Timezone Examples
+
+```javascript
+// Different timezone configurations
+connections: {
+  // UTC (Recommended)
+  production: {
+    client: 'mysql2',
+    connection: {
+      timezone: 'UTC',
+      // ... other settings
+    },
+  },
+  
+  // Specific timezone
+  regional: {
+    client: 'mysql2', 
+    connection: {
+      timezone: 'America/New_York',
+      // ... other settings
+    },
+  },
+  
+  // Offset format
+  custom: {
+    client: 'mysql2',
+    connection: {
+      timezone: '+05:30', // India Standard Time
+      // ... other settings
+    },
+  },
+}
+```
+
+## Advanced Configuration Options
+
+### Connection Pooling
+
+Control how many database connections to maintain:
+
+```javascript
+mysql: {
+  client: "mysql2",
+  connection: { /* ... */ },
+  pool: {
+    min: 2,                    // Always keep 2 connections open
+    max: 10,                   // Never exceed 10 connections
+    acquireTimeoutMillis: 30000, // Wait 30s for connection
+    createTimeoutMillis: 30000,  // Wait 30s to create connection
+    destroyTimeoutMillis: 5000,  // Wait 5s to close connection
+    idleTimeoutMillis: 30000,    // Close idle connections after 30s
+  },
+}
+```
+
+### Migration Settings
+
+Customize how migrations work:
+
+```javascript
+migrations: {
+  directory: './database/migrations',
+  tableName: 'migrations',           // Table to track migrations
+  extension: 'ts',                   // Use TypeScript files
+  loadExtensions: ['.ts', '.js'],    // Load both TS and JS
+  sortDirsSeparately: false,         // Sort files together
+  schemaName: 'public',              // PostgreSQL schema
+}
+```
+
+### Debugging
+
+Enable query logging for development:
+
+```javascript
+module.exports = {
+  debug: process.env.NODE_ENV === 'development',
+  
+  connections: {
+    sqlite: {
+      // ... connection settings
+      debug: true, // Log all SQL queries
+    },
+  },
+  
+  // Custom logging
+  log: {
+    warn(message) {
+      console.warn('⚠️ ', message);
+    },
+    error(message) {
+      console.error('❌', message);
+    },
+    debug(message) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🐛', message);
+      }
+    },
+  },
+};
+```
+
+## Configuration Examples
+
+### Development Setup
+
+```javascript
+// ilana.config.js for development
+require('dotenv').config();
+
+module.exports = {
+  default: 'sqlite',
+  
+  connections: {
+    sqlite: {
+      client: 'sqlite3',
+      connection: { filename: './dev.sqlite' },
+      useNullAsDefault: true,
+    },
+  },
+  
+  migrations: {
+    directory: './database/migrations',
+  },
+  
+  seeds: {
+    directory: './database/seeds',
+  },
+  
+  debug: true, // Show all queries
+};
+```
+
+### Production Setup
+
+```javascript
+// ilana.config.js for production
+module.exports = {
+  default: 'mysql',
+  
+  connections: {
+    mysql: {
+      client: 'mysql2',
+      connection: {
+        host: process.env.DB_HOST,
+        port: process.env.DB_PORT,
+        user: process.env.DB_USERNAME,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_DATABASE,
+        ssl: { rejectUnauthorized: false },
+      },
+      pool: {
+        min: 5,
+        max: 20,
+      },
+    },
+  },
+  
+  migrations: {
+    directory: './database/migrations',
+    tableName: 'migrations',
+  },
+  
+  debug: false, // Don't log queries in production
+};
+```
+
+## Testing Your Configuration
+
+Create a simple test script:
+
+```javascript test-config.js
+const Database = require('ilana-orm/database/connection');
+const config = require('./ilana.config');
+
+async function testConnection() {
+  try {
+    Database.configure(config);
+    const db = Database.getConnection();
+    
+    // Test the connection
+    await db.raw('SELECT 1');
+    console.log('✅ Database connection successful!');
+    
+    // Show connection info
+    console.log('📊 Using:', config.default);
+    console.log('🔧 Client:', config.connections[config.default].client);
+    
+  } catch (error) {
+    console.error('❌ Database connection failed:', error.message);
+  }
+}
+
+testConnection();
+```
+
+Run the test:
+
+```bash
+node test-config.js
+```
+
+## Common Configuration Issues
+
+<AccordionGroup>
+  <Accordion title="Connection Refused" icon="exclamation-triangle">
+    **Problem:** Can't connect to MySQL/PostgreSQL
+    
+    **Solutions:**
+    - Check if the database server is running
+    - Verify host, port, username, and password
+    - Ensure the database exists
+    - Check firewall settings
+  </Accordion>
+  
+  <Accordion title="SQLite File Not Found" icon="file-x">
+    **Problem:** SQLite database file doesn't exist
+    
+    **Solutions:**
+    - Run migrations to create the database: `npx ilana migrate`
+    - Check the file path in your configuration
+    - Ensure the directory exists
+  </Accordion>
+  
+  <Accordion title="Environment Variables Not Loading" icon="gear">
+    **Problem:** Environment variables are undefined
+    
+    **Solutions:**
+    - Install dotenv: `npm install dotenv`
+    - Add `require('dotenv').config()` to your config file
+    - Check your `.env` file syntax (no spaces around `=`)
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Create Models"
+    icon="cube"
+    href="/essentials/models"
+  >
+    Learn how to define your data models
+  </Card>
+  <Card
+    title="Database Migrations"
+    icon="database"
+    href="/database/migrations"
+  >
+    Set up your database tables
+  </Card>
+</CardGroup>

@@ -1,0 +1,636 @@
+---
+title: 'Model Factories'
+description: 'Generate realistic test data with factories'
+---
+
+## What are Model Factories?
+
+Model factories are blueprints for generating fake but realistic data for testing. They use libraries like Faker.js to create random names, emails, addresses, and other data that looks real.
+
+<Info>
+**Real-world analogy:** Factories are like cookie cutters. You define the shape (the data structure), and the factory can quickly produce many cookies (model instances) with different decorations (random data) but the same basic shape.
+</Info>
+
+## Creating Factories
+
+### Using the CLI
+
+```bash
+# Create a factory
+npx ilana make:factory UserFactory
+
+# Create factory when making model
+npx ilana make:model Product --factory
+```
+
+### Basic Factory Structure
+
+```javascript
+// database/factories/UserFactory.js
+const { defineFactory } = require('ilana-orm/orm/Factory');
+const { faker } = require('@faker-js/faker');
+const User = require('../../models/User');
+
+module.exports = defineFactory(User, () => ({
+  name: faker.person.fullName(),
+  email: faker.internet.email(),
+  password: 'password123',
+  age: faker.number.int({ min: 18, max: 80 }),
+  bio: faker.lorem.paragraph(),
+  is_active: faker.datatype.boolean(),
+}));
+```
+
+## Using Factories
+
+### Creating Single Records
+
+```javascript
+const User = require('../models/User');
+require('../database/factories/UserFactory');
+
+// Create one user
+const user = await User.factory().create();
+console.log(user.name); // "John Doe" (random name)
+
+// Create user with specific attributes
+const admin = await User.factory().create({
+  role: 'admin',
+  is_active: true,
+});
+```
+
+### Creating Multiple Records
+
+```javascript
+// Create 10 users
+const users = await User.factory().times(10).create();
+
+// Create 5 active users
+const activeUsers = await User.factory()
+  .times(5)
+  .create({ is_active: true });
+```
+
+### Making Without Saving
+
+```javascript
+// Make user instance without saving to database
+const user = await User.factory().make();
+console.log(user.name); // Has data but not saved
+
+// Make multiple instances
+const users = await User.factory().times(3).make();
+```
+
+## Advanced Factory Patterns
+
+### Factory States
+
+Define different variations of your factory:
+
+```javascript
+// UserFactory.js
+const { defineFactory } = require('ilana-orm/orm/Factory');
+const { faker } = require('@faker-js/faker');
+const User = require('../../models/User');
+
+module.exports = defineFactory(User, () => ({
+  name: faker.person.fullName(),
+  email: faker.internet.email(),
+  password: 'password123',
+  role: 'user',
+  is_active: true,
+}))
+  .state('admin', () => ({
+    role: 'admin',
+    email: faker.internet.email(),
+  }))
+  .state('inactive', () => ({
+    is_active: false,
+    deactivated_at: faker.date.recent(),
+  }))
+  .state('premium', () => ({
+    subscription: 'premium',
+    credits: faker.number.int({ min: 100, max: 1000 }),
+  }));
+```
+
+### Using States
+
+```javascript
+// Create admin user
+const admin = await User.factory().state('admin').create();
+
+// Create inactive user
+const inactiveUser = await User.factory().state('inactive').create();
+
+// Combine multiple states
+const premiumAdmin = await User.factory()
+  .state('admin')
+  .state('premium')
+  .create();
+
+// Create multiple users with state
+const admins = await User.factory()
+  .state('admin')
+  .times(3)
+  .create();
+```
+
+### Sequences
+
+Generate sequential data:
+
+```javascript
+// UserFactory.js
+let userSequence = 1;
+
+Factory.define('User', () => ({
+  name: faker.name.findName(),
+  email: `user${userSequence++}@example.com`, // user1@, user2@, etc.
+  username: `user${userSequence}`,
+}));
+
+// Or use Factory.sequence
+Factory.define('User', () => ({
+  name: faker.name.findName(),
+  email: Factory.sequence(n => `user${n}@example.com`),
+  username: Factory.sequence(n => `user${n}`),
+}));
+```
+
+### Callbacks and Hooks
+
+```javascript
+Factory.define('User', () => ({
+  name: faker.name.findName(),
+  email: faker.internet.email(),
+  password: 'secret123',
+}));
+
+// After creating callback
+module.exports = defineFactory(User, () => ({
+  name: faker.person.fullName(),
+  email: faker.internet.email(),
+  password: 'secret123',
+}))
+  .afterCreating(async (user) => {
+    // Create a profile for each user
+    await user.profile().create({
+      bio: faker.lorem.paragraph(),
+      avatar: faker.image.avatar(),
+    });
+  })
+  .afterMaking((user) => {
+    // Set computed fields
+    user.display_name = user.name.toUpperCase();
+  });
+```
+
+## Relationship Factories
+
+### Has One Relationship
+
+```javascript
+// UserFactory.js
+Factory.define('User', () => ({
+  name: faker.name.findName(),
+  email: faker.internet.email(),
+}));
+
+Factory.afterCreating('User', async (user) => {
+  await user.profile().create({
+    bio: faker.lorem.paragraph(),
+    website: faker.internet.url(),
+  });
+});
+
+// Usage
+const user = await User.factory().create();
+// User will automatically have a profile
+```
+
+### Has Many Relationship
+
+```javascript
+// UserFactory.js
+Factory.afterCreating('User', async (user) => {
+  // Create 3-7 posts for each user
+  const postCount = faker.datatype.number({ min: 3, max: 7 });
+  
+  for (let i = 0; i < postCount; i++) {
+    await user.posts().create({
+      title: faker.lorem.sentence(),
+      content: faker.lorem.paragraphs(3),
+      is_published: faker.datatype.boolean(),
+    });
+  }
+});
+
+// Or use Post factory
+Factory.afterCreating('User', async (user) => {
+  await Post.factory()
+    .count(faker.datatype.number({ min: 3, max: 7 }))
+    .create({ user_id: user.id });
+});
+```
+
+### Many-to-Many Relationship
+
+```javascript
+// PostFactory.js
+Factory.define('Post', () => ({
+  title: faker.lorem.sentence(),
+  content: faker.lorem.paragraphs(3),
+  is_published: true,
+}));
+
+Factory.afterCreating('Post', async (post) => {
+  // Attach 1-5 random tags
+  const tagCount = faker.datatype.number({ min: 1, max: 5 });
+  const allTags = await Tag.all();
+  const randomTags = faker.helpers.shuffle(allTags).slice(0, tagCount);
+  
+  await post.tags().attach(randomTags.map(tag => tag.id));
+});
+```
+
+### Polymorphic Relationships
+
+```javascript
+// CommentFactory.js
+Factory.define('Comment', () => ({
+  content: faker.lorem.paragraph(),
+  user_id: () => User.factory().create().then(user => user.id),
+}));
+
+// Create comments for posts
+Factory.state('Comment', 'on_post', () => ({
+  commentable_type: 'Post',
+  commentable_id: () => Post.factory().create().then(post => post.id),
+}));
+
+// Create comments for videos
+Factory.state('Comment', 'on_video', () => ({
+  commentable_type: 'Video',
+  commentable_id: () => Video.factory().create().then(video => video.id),
+}));
+
+// Usage
+const postComment = await Comment.factory().state('on_post').create();
+const videoComment = await Comment.factory().state('on_video').create();
+```
+
+## Complex Factory Examples
+
+### E-commerce Factory
+
+```javascript
+// ProductFactory.js
+Factory.define('Product', () => ({
+  name: faker.commerce.productName(),
+  description: faker.commerce.productDescription(),
+  price: parseFloat(faker.commerce.price()),
+  sku: faker.random.alphaNumeric(8).toUpperCase(),
+  stock_quantity: faker.datatype.number({ min: 0, max: 100 }),
+  is_active: true,
+  weight: faker.datatype.float({ min: 0.1, max: 10.0, precision: 0.1 }),
+  dimensions: {
+    length: faker.datatype.number({ min: 1, max: 50 }),
+    width: faker.datatype.number({ min: 1, max: 50 }),
+    height: faker.datatype.number({ min: 1, max: 50 }),
+  },
+}));
+
+Factory.state('Product', 'out_of_stock', () => ({
+  stock_quantity: 0,
+  is_active: false,
+}));
+
+Factory.state('Product', 'featured', () => ({
+  is_featured: true,
+  price: parseFloat(faker.commerce.price(50, 500)), // Higher price range
+}));
+```
+
+### Blog Factory
+
+```javascript
+// PostFactory.js
+Factory.define('Post', () => ({
+  title: faker.lorem.sentence().replace('.', ''),
+  slug: faker.helpers.slugify(faker.lorem.sentence()).toLowerCase(),
+  excerpt: faker.lorem.sentences(2),
+  content: faker.lorem.paragraphs(5, '\n\n'),
+  featured_image: faker.image.imageUrl(800, 600, 'business'),
+  is_published: faker.datatype.boolean(),
+  published_at: faker.date.recent(30),
+  meta_title: faker.lorem.sentence(),
+  meta_description: faker.lorem.sentences(2),
+  reading_time: faker.datatype.number({ min: 2, max: 15 }),
+  view_count: faker.datatype.number({ min: 0, max: 10000 }),
+}));
+
+Factory.state('Post', 'published', () => ({
+  is_published: true,
+  published_at: faker.date.recent(30),
+}));
+
+Factory.state('Post', 'draft', () => ({
+  is_published: false,
+  published_at: null,
+}));
+
+Factory.state('Post', 'popular', () => ({
+  view_count: faker.datatype.number({ min: 1000, max: 50000 }),
+  is_featured: true,
+}));
+```
+
+## Testing with Factories
+
+### Unit Tests
+
+```javascript
+// tests/UserTest.js
+const User = require('../models/User');
+require('../database/factories/UserFactory');
+
+describe('User Model', () => {
+  test('can create user', async () => {
+    const user = await User.factory().create();
+    
+    expect(user.id).toBeDefined();
+    expect(user.name).toBeDefined();
+    expect(user.email).toContain('@');
+  });
+  
+  test('admin users have admin role', async () => {
+    const admin = await User.factory().state('admin').create();
+    
+    expect(admin.role).toBe('admin');
+  });
+  
+  test('can create multiple users', async () => {
+    const users = await User.factory().count(5).create();
+    
+    expect(users).toHaveLength(5);
+    expect(users[0].name).toBeDefined();
+  });
+});
+```
+
+### Integration Tests
+
+```javascript
+// tests/PostCreationTest.js
+describe('Post Creation', () => {
+  test('user can create post', async () => {
+    const user = await User.factory().create();
+    
+    const post = await Post.factory().create({
+      user_id: user.id,
+      title: 'Test Post',
+    });
+    
+    expect(post.user_id).toBe(user.id);
+    expect(post.title).toBe('Test Post');
+    
+    // Test relationship
+    await post.load('author');
+    expect(post.author.id).toBe(user.id);
+  });
+});
+```
+
+### Database Seeding with Factories
+
+```javascript
+// database/seeds/DemoSeeder.js
+const Seeder = require('ilana-orm/orm/Seeder');
+const User = require('../../models/User');
+const Post = require('../../models/Post');
+const { faker } = require('@faker-js/faker');
+
+class DemoSeeder extends Seeder {
+  async run() {
+    // Clear existing data
+    await Post.query().delete();
+    await User.query().delete();
+    
+    // Create demo users
+    const admin = await User.factory().state('admin').create({
+      name: 'Demo Admin',
+      email: 'admin@demo.com',
+    });
+    
+    const users = await User.factory().times(10).create();
+    
+    // Create posts for each user
+    for (const user of [admin, ...users]) {
+      await Post.factory()
+        .times(faker.number.int({ min: 2, max: 8 }))
+        .create({ user_id: user.id });
+    }
+    
+    console.log('Demo data created successfully!');
+  }
+}
+
+module.exports = DemoSeeder;
+```
+
+## Custom Faker Providers
+
+### Creating Custom Data
+
+```javascript
+// Custom faker methods
+const customFaker = {
+  ...faker,
+  custom: {
+    username: () => {
+      return faker.internet.userName().toLowerCase().replace(/[^a-z0-9]/g, '');
+    },
+    
+    phoneNumber: () => {
+      return faker.phone.phoneNumber('###-###-####');
+    },
+    
+    productCategory: () => {
+      const categories = ['Electronics', 'Clothing', 'Books', 'Home', 'Sports'];
+      return faker.helpers.randomize(categories);
+    },
+    
+    blogStatus: () => {
+      return faker.helpers.randomize(['draft', 'published', 'archived']);
+    },
+  },
+};
+
+// Use in factory
+Factory.define('User', () => ({
+  name: faker.name.findName(),
+  username: customFaker.custom.username(),
+  phone: customFaker.custom.phoneNumber(),
+}));
+```
+
+### Locale-Specific Data
+
+```javascript
+// Set faker locale
+faker.locale = 'es'; // Spanish
+// faker.locale = 'fr'; // French
+// faker.locale = 'de'; // German
+
+Factory.define('User', () => ({
+  name: faker.name.findName(), // Will generate Spanish names
+  address: faker.address.streetAddress(),
+  city: faker.address.city(),
+}));
+```
+
+## Performance Optimization
+
+### Batch Creation
+
+```javascript
+// Efficient bulk creation
+async function createBulkUsers(count) {
+  const users = [];
+  
+  // Generate data first
+  for (let i = 0; i < count; i++) {
+    users.push({
+      name: faker.name.findName(),
+      email: faker.internet.email(),
+      password: 'secret123',
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+  }
+  
+  // Insert in batches
+  const batchSize = 100;
+  for (let i = 0; i < users.length; i += batchSize) {
+    const batch = users.slice(i, i + batchSize);
+    await User.query().insert(batch);
+  }
+  
+  return users;
+}
+```
+
+### Reusing Data
+
+```javascript
+// Cache frequently used data
+let cachedCategories = null;
+
+Factory.define('Post', async () => {
+  // Reuse categories instead of creating new ones
+  if (!cachedCategories) {
+    cachedCategories = await Category.factory().count(5).create();
+  }
+  
+  return {
+    title: faker.lorem.sentence(),
+    content: faker.lorem.paragraphs(3),
+    category_id: faker.helpers.randomize(cachedCategories).id,
+  };
+});
+```
+
+## Best Practices
+
+### 1. Keep Factories Simple
+
+```javascript
+// ✅ Good - simple and focused
+Factory.define('User', () => ({
+  name: faker.name.findName(),
+  email: faker.internet.email(),
+  password: 'secret123',
+}));
+
+// ❌ Bad - too complex
+Factory.define('User', () => ({
+  name: faker.name.findName(),
+  email: faker.internet.email(),
+  password: bcrypt.hashSync('secret123', 10), // Expensive operation
+  profile: { // Nested complexity
+    bio: faker.lorem.paragraph(),
+    avatar: faker.image.avatar(),
+  },
+}));
+```
+
+### 2. Use Consistent Test Data
+
+```javascript
+// ✅ Good - predictable for tests
+Factory.define('User', () => ({
+  name: faker.name.findName(),
+  email: faker.internet.email(),
+  password: 'secret123', // Same password for all test users
+}));
+
+// ❌ Bad - unpredictable
+Factory.define('User', () => ({
+  password: faker.internet.password(), // Different every time
+}));
+```
+
+### 3. Organize Factories by Domain
+
+```
+database/factories/
+├── UserFactory.js
+├── PostFactory.js
+├── CommentFactory.js
+├── ecommerce/
+│   ├── ProductFactory.js
+│   ├── OrderFactory.js
+│   └── CategoryFactory.js
+└── blog/
+    ├── ArticleFactory.js
+    └── TagFactory.js
+```
+
+### 4. Document Factory States
+
+```javascript
+/**
+ * User Factory
+ * 
+ * States:
+ * - admin: Creates user with admin role
+ * - inactive: Creates deactivated user
+ * - premium: Creates user with premium subscription
+ * - verified: Creates user with verified email
+ */
+Factory.define('User', () => ({
+  // ... factory definition
+}));
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Database Connections"
+    icon="plug"
+    href="/database/connections"
+  >
+    Learn to manage multiple database connections
+  </Card>
+  <Card
+    title="Advanced Features"
+    icon="rocket"
+    href="/advanced/events"
+  >
+    Explore events, observers, and custom casting
+  </Card>
+</CardGroup>

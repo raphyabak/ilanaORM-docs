@@ -1,0 +1,842 @@
+---
+title: 'Custom Casting'
+description: 'Transform data with powerful custom cast classes'
+---
+
+## What is Custom Casting?
+
+Custom casting allows you to transform data when it's retrieved from or stored to the database. While IlanaORM provides built-in casts like `'date'`, `'boolean'`, and `'json'`, custom casts let you create your own transformation logic.
+
+<Info>
+**Real-world analogy:** Custom casting is like having a translator who speaks multiple languages. When data comes from the database (foreign language), the translator converts it to something your application understands (native language). When saving data, the translator converts it back to the database format.
+</Info>
+
+## Built-in Casts
+
+Before creating custom casts, let's review what's available:
+
+```javascript
+class User extends Model {
+  casts = {
+    // String casting
+    name: 'string',
+    
+    // Number casting
+    age: 'number',
+    salary: 'float',
+    
+    // Boolean casting
+    is_active: 'boolean',
+    is_verified: 'boolean',
+    
+    // Date casting
+    birth_date: 'date',
+    email_verified_at: 'date',
+    
+    // JSON casting
+    preferences: 'json',
+    metadata: 'object',
+    tags: 'array',
+  };
+}
+```
+
+## Creating Custom Casts
+
+### Using the CLI
+
+```bash
+# Create a custom cast
+npx ilana make:cast MoneyCast
+```
+
+### Basic Cast Structure
+
+```javascript
+// casts/MoneyCast.js
+class MoneyCast {
+  /**
+   * Transform the attribute from the model to the database
+   */
+  set(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    
+    // Convert dollars to cents for storage
+    return Math.round(parseFloat(value) * 100);
+  }
+  
+  /**
+   * Transform the attribute from the database to the model
+   */
+  get(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    
+    // Convert cents to dollars for display
+    return parseFloat(value) / 100;
+  }
+}
+
+module.exports = MoneyCast;
+```
+
+### Using Custom Casts
+
+```javascript
+// models/Product.js
+const MoneyCast = require('../casts/MoneyCast');
+
+class Product extends Model {
+  casts = {
+    price: new MoneyCast(),
+    cost: new MoneyCast(),
+    discount_amount: new MoneyCast(),
+  };
+}
+
+// Usage
+const product = await Product.create({
+  name: 'Widget',
+  price: 19.99, // Stored as 1999 in database
+});
+
+console.log(product.price); // 19.99 (converted back from 1999)
+```
+
+## Advanced Cast Examples
+
+### Encrypted Cast
+
+```javascript
+// casts/EncryptedCast.js
+const crypto = require('crypto');
+
+class EncryptedCast {
+  constructor(key) {
+    this.key = key || process.env.ENCRYPTION_KEY;
+    this.algorithm = 'aes-256-gcm';
+  }
+  
+  set(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipher(this.algorithm, this.key);
+    cipher.setAAD(Buffer.from('additional data'));
+    
+    let encrypted = cipher.update(value, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    
+    const authTag = cipher.getAuthTag();
+    
+    return {
+      encrypted,
+      iv: iv.toString('hex'),
+      authTag: authTag.toString('hex'),
+    };
+  }
+  
+  get(value) {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+    
+    try {
+      const decipher = crypto.createDecipher(this.algorithm, this.key);
+      decipher.setAAD(Buffer.from('additional data'));
+      decipher.setAuthTag(Buffer.from(value.authTag, 'hex'));
+      
+      let decrypted = decipher.update(value.encrypted, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      
+      return decrypted;
+    } catch (error) {
+      console.error('Decryption failed:', error);
+      return null;
+    }
+  }
+}
+
+module.exports = EncryptedCast;
+```
+
+### Address Cast
+
+```javascript
+// casts/AddressCast.js
+class AddressCast {
+  set(value) {
+    if (!value) return null;
+    
+    // If it's already a string (JSON), return as-is
+    if (typeof value === 'string') {
+      return value;
+    }
+    
+    // If it's an object, convert to JSON
+    if (typeof value === 'object') {
+      return JSON.stringify({
+        street: value.street || '',
+        city: value.city || '',
+        state: value.state || '',
+        zip: value.zip || '',
+        country: value.country || 'US',
+      });
+    }
+    
+    return null;
+  }
+  
+  get(value) {
+    if (!value) return null;
+    
+    try {
+      const address = JSON.parse(value);
+      
+      // Add computed properties
+      return {
+        ...address,
+        full_address: this.formatFullAddress(address),
+        is_complete: this.isComplete(address),
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+  
+  formatFullAddress(address) {
+    const parts = [
+      address.street,
+      address.city,
+      address.state,
+      address.zip,
+    ].filter(Boolean);
+    
+    return parts.join(', ');
+  }
+  
+  isComplete(address) {
+    return !!(address.street && address.city && address.state && address.zip);
+  }
+}
+
+module.exports = AddressCast;
+```
+
+### Phone Number Cast
+
+```javascript
+// casts/PhoneCast.js
+class PhoneCast {
+  set(value) {
+    if (!value) return null;
+    
+    // Remove all non-digits
+    const digits = value.replace(/\D/g, '');
+    
+    // Store only digits
+    return digits;
+  }
+  
+  get(value) {
+    if (!value) return null;
+    
+    // Format for display
+    if (value.length === 10) {
+      return `(${value.slice(0, 3)}) ${value.slice(3, 6)}-${value.slice(6)}`;
+    }
+    
+    if (value.length === 11 && value.startsWith('1')) {
+      return `+1 (${value.slice(1, 4)}) ${value.slice(4, 7)}-${value.slice(7)}`;
+    }
+    
+    return value;
+  }
+}
+
+module.exports = PhoneCast;
+```
+
+### Color Cast
+
+```javascript
+// casts/ColorCast.js
+class ColorCast {
+  set(value) {
+    if (!value) return null;
+    
+    // Convert various formats to hex
+    if (value.startsWith('#')) {
+      return value.toUpperCase();
+    }
+    
+    if (value.startsWith('rgb')) {
+      return this.rgbToHex(value);
+    }
+    
+    // Named colors
+    const namedColors = {
+      red: '#FF0000',
+      green: '#00FF00',
+      blue: '#0000FF',
+      black: '#000000',
+      white: '#FFFFFF',
+    };
+    
+    return namedColors[value.toLowerCase()] || value;
+  }
+  
+  get(value) {
+    if (!value) return null;
+    
+    return {
+      hex: value,
+      rgb: this.hexToRgb(value),
+      hsl: this.hexToHsl(value),
+      name: this.getColorName(value),
+    };
+  }
+  
+  rgbToHex(rgb) {
+    const match = rgb.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+    if (!match) return rgb;
+    
+    const [, r, g, b] = match;
+    return `#${((1 << 24) + (parseInt(r) << 16) + (parseInt(g) << 8) + parseInt(b)).toString(16).slice(1).toUpperCase()}`;
+  }
+  
+  hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16),
+    } : null;
+  }
+  
+  hexToHsl(hex) {
+    const rgb = this.hexToRgb(hex);
+    if (!rgb) return null;
+    
+    const { r, g, b } = rgb;
+    const rNorm = r / 255;
+    const gNorm = g / 255;
+    const bNorm = b / 255;
+    
+    const max = Math.max(rNorm, gNorm, bNorm);
+    const min = Math.min(rNorm, gNorm, bNorm);
+    
+    let h, s, l = (max + min) / 2;
+    
+    if (max === min) {
+      h = s = 0;
+    } else {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      
+      switch (max) {
+        case rNorm: h = (gNorm - bNorm) / d + (gNorm < bNorm ? 6 : 0); break;
+        case gNorm: h = (bNorm - rNorm) / d + 2; break;
+        case bNorm: h = (rNorm - gNorm) / d + 4; break;
+      }
+      h /= 6;
+    }
+    
+    return {
+      h: Math.round(h * 360),
+      s: Math.round(s * 100),
+      l: Math.round(l * 100),
+    };
+  }
+  
+  getColorName(hex) {
+    const colorNames = {
+      '#FF0000': 'Red',
+      '#00FF00': 'Green',
+      '#0000FF': 'Blue',
+      '#000000': 'Black',
+      '#FFFFFF': 'White',
+    };
+    
+    return colorNames[hex] || 'Unknown';
+  }
+}
+
+module.exports = ColorCast;
+```
+
+## Parameterized Casts
+
+### Cast with Configuration
+
+```javascript
+// casts/HashCast.js
+const bcrypt = require('bcrypt');
+
+class HashCast {
+  constructor(rounds = 10) {
+    this.rounds = rounds;
+  }
+  
+  set(value) {
+    if (!value) return null;
+    
+    // Only hash if it's not already hashed
+    if (this.isHashed(value)) {
+      return value;
+    }
+    
+    return bcrypt.hashSync(value, this.rounds);
+  }
+  
+  get(value) {
+    // Return as-is (hashed values shouldn't be unhashed)
+    return value;
+  }
+  
+  isHashed(value) {
+    // bcrypt hashes start with $2a$, $2b$, or $2y$
+    return /^\$2[aby]\$/.test(value);
+  }
+  
+  verify(plaintext, hash) {
+    return bcrypt.compareSync(plaintext, hash);
+  }
+}
+
+module.exports = HashCast;
+
+// Usage
+class User extends Model {
+  casts = {
+    password: new HashCast(12), // 12 rounds for extra security
+  };
+  
+  verifyPassword(plaintext) {
+    return this.casts.password.verify(plaintext, this.password);
+  }
+}
+```
+
+### Configurable JSON Cast
+
+```javascript
+// casts/ConfigurableJsonCast.js
+class ConfigurableJsonCast {
+  constructor(options = {}) {
+    this.defaultValue = options.defaultValue || null;
+    this.validate = options.validate || (() => true);
+    this.transform = options.transform || (value => value);
+  }
+  
+  set(value) {
+    if (value === null || value === undefined) {
+      return this.defaultValue ? JSON.stringify(this.defaultValue) : null;
+    }
+    
+    if (typeof value === 'string') {
+      return value;
+    }
+    
+    // Validate before storing
+    if (!this.validate(value)) {
+      throw new Error('Invalid data for JSON cast');
+    }
+    
+    return JSON.stringify(value);
+  }
+  
+  get(value) {
+    if (!value) {
+      return this.defaultValue;
+    }
+    
+    try {
+      const parsed = JSON.parse(value);
+      return this.transform(parsed);
+    } catch (error) {
+      return this.defaultValue;
+    }
+  }
+}
+
+module.exports = ConfigurableJsonCast;
+
+// Usage
+class User extends Model {
+  casts = {
+    preferences: new ConfigurableJsonCast({
+      defaultValue: { theme: 'light', notifications: true },
+      validate: (value) => typeof value === 'object' && value !== null,
+      transform: (value) => ({
+        ...value,
+        updated_at: new Date().toISOString(),
+      }),
+    }),
+  };
+}
+```
+
+## Cast Collections
+
+### Multiple Related Casts
+
+```javascript
+// casts/GeolocationCast.js
+class GeolocationCast {
+  set(value) {
+    if (!value) return null;
+    
+    if (typeof value === 'string') {
+      return value;
+    }
+    
+    // Validate coordinates
+    if (typeof value === 'object' && value.lat && value.lng) {
+      const lat = parseFloat(value.lat);
+      const lng = parseFloat(value.lng);
+      
+      if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        return JSON.stringify({ lat, lng });
+      }
+    }
+    
+    return null;
+  }
+  
+  get(value) {
+    if (!value) return null;
+    
+    try {
+      const coords = JSON.parse(value);
+      
+      return {
+        ...coords,
+        // Add computed properties
+        toString: () => `${coords.lat}, ${coords.lng}`,
+        distanceTo: (other) => this.calculateDistance(coords, other),
+        googleMapsUrl: () => `https://maps.google.com/?q=${coords.lat},${coords.lng}`,
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+  
+  calculateDistance(from, to) {
+    const R = 6371; // Earth's radius in km
+    const dLat = this.toRad(to.lat - from.lat);
+    const dLng = this.toRad(to.lng - from.lng);
+    
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(this.toRad(from.lat)) * Math.cos(this.toRad(to.lat)) *
+              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+  
+  toRad(degrees) {
+    return degrees * (Math.PI / 180);
+  }
+}
+
+// Usage
+class Store extends Model {
+  casts = {
+    location: new GeolocationCast(),
+  };
+}
+
+const store = await Store.find(1);
+console.log(store.location.toString()); // "40.7128, -74.0060"
+console.log(store.location.googleMapsUrl()); // Google Maps URL
+
+const distance = store.location.distanceTo({ lat: 40.7589, lng: -73.9851 });
+console.log(`Distance: ${distance.toFixed(2)} km`);
+```
+
+## Testing Custom Casts
+
+### Unit Testing Casts
+
+```javascript
+// test/casts/MoneyCast.test.js
+const MoneyCast = require('../../casts/MoneyCast');
+
+describe('MoneyCast', () => {
+  let cast;
+  
+  beforeEach(() => {
+    cast = new MoneyCast();
+  });
+  
+  describe('set', () => {
+    test('converts dollars to cents', () => {
+      expect(cast.set(19.99)).toBe(1999);
+      expect(cast.set(0.01)).toBe(1);
+      expect(cast.set(100)).toBe(10000);
+    });
+    
+    test('handles null and undefined', () => {
+      expect(cast.set(null)).toBeNull();
+      expect(cast.set(undefined)).toBeNull();
+    });
+    
+    test('handles string input', () => {
+      expect(cast.set('19.99')).toBe(1999);
+      expect(cast.set('0.01')).toBe(1);
+    });
+  });
+  
+  describe('get', () => {
+    test('converts cents to dollars', () => {
+      expect(cast.get(1999)).toBe(19.99);
+      expect(cast.get(1)).toBe(0.01);
+      expect(cast.get(10000)).toBe(100);
+    });
+    
+    test('handles null and undefined', () => {
+      expect(cast.get(null)).toBeNull();
+      expect(cast.get(undefined)).toBeNull();
+    });
+  });
+});
+```
+
+### Integration Testing
+
+```javascript
+// test/models/Product.test.js
+const Product = require('../../models/Product');
+
+describe('Product Model with MoneyCast', () => {
+  test('stores and retrieves money values correctly', async () => {
+    const product = await Product.create({
+      name: 'Test Product',
+      price: 19.99,
+    });
+    
+    // Check database value (should be in cents)
+    const rawData = await Product.query()
+      .where('id', product.id)
+      .first();
+    expect(rawData.price).toBe(1999);
+    
+    // Check model value (should be in dollars)
+    expect(product.price).toBe(19.99);
+    
+    // Test retrieval
+    const retrieved = await Product.find(product.id);
+    expect(retrieved.price).toBe(19.99);
+  });
+});
+```
+
+## Performance Considerations
+
+### Lazy Cast Evaluation
+
+```javascript
+// casts/ExpensiveCast.js
+class ExpensiveCast {
+  constructor() {
+    this.cache = new Map();
+  }
+  
+  set(value) {
+    if (!value) return null;
+    
+    // Expensive transformation
+    return this.expensiveTransform(value);
+  }
+  
+  get(value) {
+    if (!value) return null;
+    
+    // Cache expensive operations
+    if (this.cache.has(value)) {
+      return this.cache.get(value);
+    }
+    
+    const result = this.expensiveTransform(value);
+    this.cache.set(value, result);
+    
+    return result;
+  }
+  
+  expensiveTransform(value) {
+    // Simulate expensive operation
+    return value;
+  }
+}
+```
+
+### Async Casts (Advanced)
+
+```javascript
+// casts/AsyncImageCast.js
+class AsyncImageCast {
+  set(value) {
+    if (!value) return null;
+    
+    // Store the original value
+    return JSON.stringify({
+      original: value,
+      processed: false,
+    });
+  }
+  
+  get(value) {
+    if (!value) return null;
+    
+    try {
+      const data = JSON.parse(value);
+      
+      return {
+        ...data,
+        // Provide async method for processing
+        process: async () => {
+          if (!data.processed) {
+            const processed = await this.processImage(data.original);
+            // Update the database with processed version
+            return processed;
+          }
+          return data;
+        },
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+  
+  async processImage(imageData) {
+    // Simulate async image processing
+    return new Promise(resolve => {
+      setTimeout(() => {
+        resolve({
+          original: imageData,
+          processed: true,
+          thumbnail: `thumb_${imageData}`,
+          optimized: `opt_${imageData}`,
+        });
+      }, 100);
+    });
+  }
+}
+```
+
+## Best Practices
+
+### 1. Keep Casts Simple
+
+```javascript
+// ✅ Good - focused on one transformation
+class MoneyCast {
+  set(value) {
+    return Math.round(parseFloat(value) * 100);
+  }
+  
+  get(value) {
+    return parseFloat(value) / 100;
+  }
+}
+
+// ❌ Bad - doing too much
+class ComplexCast {
+  set(value) {
+    // Validation, transformation, logging, caching, etc.
+  }
+}
+```
+
+### 2. Handle Edge Cases
+
+```javascript
+// ✅ Good - handles null, undefined, invalid data
+class SafeCast {
+  set(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    
+    if (typeof value !== 'string') {
+      return String(value);
+    }
+    
+    return value.trim();
+  }
+  
+  get(value) {
+    return value || '';
+  }
+}
+```
+
+### 3. Make Casts Reversible
+
+```javascript
+// ✅ Good - can convert both ways
+class ReversibleCast {
+  set(value) {
+    return btoa(value); // Encode
+  }
+  
+  get(value) {
+    return atob(value); // Decode
+  }
+}
+
+// ❌ Bad - one-way transformation
+class OneWayCast {
+  set(value) {
+    return crypto.createHash('sha256').update(value).digest('hex');
+  }
+  
+  get(value) {
+    return value; // Can't reverse a hash
+  }
+}
+```
+
+### 4. Document Cast Behavior
+
+```javascript
+/**
+ * MoneyCast
+ * 
+ * Converts between dollars (display) and cents (storage)
+ * 
+ * Storage: Integer cents (1999 = $19.99)
+ * Display: Float dollars (19.99)
+ * 
+ * Handles: null, undefined, strings, numbers
+ * Precision: Rounds to nearest cent
+ */
+class MoneyCast {
+  // ... implementation
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Query Scopes"
+    icon="filter"
+    href="/advanced/scopes"
+  >
+    Create reusable query constraints
+  </Card>
+  <Card
+    title="API Reference"
+    icon="book"
+    href="/api-reference/introduction"
+  >
+    Explore the complete API documentation
+  </Card>
+</CardGroup>

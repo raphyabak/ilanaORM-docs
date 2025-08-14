@@ -1,0 +1,684 @@
+---
+title: 'Models'
+description: 'Learn how to create and use models in IlanaORM'
+---
+
+## What is a Model?
+
+Think of a model as a **blueprint** for your data. If you have a "users" table in your database, you create a "User" model to work with user data in your JavaScript code.
+
+<Info>
+**Real-world analogy:** A model is like a form at the doctor's office. The form has specific fields (name, age, symptoms), and each filled-out form represents one patient record. The model defines what fields exist, and each instance represents one record.
+</Info>
+
+## Creating Your First Model
+
+### Using the CLI (Recommended)
+
+```bash
+# Create a model
+npx ilana make:model User
+
+# Create a model with migration
+npx ilana make:model User --migration
+
+# Create a model with everything (migration, factory, seeder)
+npx ilana make:model User --all
+```
+
+### Manual Creation
+
+<CodeGroup>
+
+```javascript models/User.js
+const Model = require('ilana-orm/orm/Model');
+
+class User extends Model {
+  // Table name (optional - defaults to lowercase plural)
+  static table = 'users';
+  
+  // Enable timestamps (created_at, updated_at)
+  static timestamps = true;
+  
+  // Fields that can be mass-assigned
+  fillable = ['name', 'email', 'password'];
+  
+  // Fields to hide from JSON output
+  hidden = ['password'];
+}
+
+module.exports = User;
+```
+
+```typescript models/User.ts
+import Model from 'ilana-orm/orm/Model';
+
+export default class User extends Model {
+  protected static table = 'users';
+  protected static timestamps = true;
+  
+  protected fillable: string[] = ['name', 'email', 'password'];
+  protected hidden: string[] = ['password'];
+  
+  // Type your attributes
+  id!: number;
+  name!: string;
+  email!: string;
+  password!: string;
+  created_at!: Date;
+  updated_at!: Date;
+}
+```
+
+</CodeGroup>
+
+## Model Configuration
+
+### Table Settings
+
+```javascript
+class User extends Model {
+  // Specify table name (defaults to lowercase plural of class name)
+  static table = 'users';
+  
+  // Primary key column (defaults to 'id')
+  static primaryKey = 'id';
+  
+  // Primary key type ('number' or 'string')
+  static keyType = 'number';
+  
+  // Whether primary key auto-increments (true for numbers, false for UUIDs)
+  static incrementing = true;
+  
+  // Database connection to use (optional)
+  static connection = 'mysql';
+}
+```
+
+### UUID Primary Keys
+
+For non-incrementing string IDs (like UUIDs):
+
+```javascript
+class User extends Model {
+  static table = 'users';
+  static keyType = 'string';
+  static incrementing = false; // IlanaORM will generate UUIDs automatically
+}
+
+// Usage
+const user = await User.create({
+  name: 'John Doe',
+  email: 'john@example.com',
+});
+console.log(user.id); // "550e8400-e29b-41d4-a716-446655440000"
+```
+
+### Timestamps
+
+Control automatic timestamp handling:
+
+```javascript
+class User extends Model {
+  // Enable/disable timestamps
+  static timestamps = true;
+  
+  // Customize timestamp column names
+  static createdAt = 'created_at';
+  static updatedAt = 'updated_at';
+}
+```
+
+### Soft Deletes
+
+Mark records as deleted without actually removing them:
+
+```javascript
+class User extends Model {
+  static softDeletes = true;
+  static deletedAt = 'deleted_at'; // Column name for soft delete timestamp
+}
+
+// Usage
+await user.delete(); // Sets deleted_at timestamp
+const users = await User.all(); // Only returns non-deleted users
+const allUsers = await User.withTrashed().all(); // Includes deleted users
+const deletedUsers = await User.onlyTrashed().all(); // Only deleted users
+```
+
+## Mass Assignment Protection
+
+Control which fields can be set when creating or updating records:
+
+```javascript
+class User extends Model {
+  // Fields that CAN be mass-assigned
+  fillable = ['name', 'email', 'password'];
+  
+  // OR fields that CANNOT be mass-assigned
+  guarded = ['id', 'is_admin', 'created_at'];
+  
+  // OR disable all protection (not recommended)
+  // static unguarded = true;
+}
+
+// This works
+const user = await User.create({
+  name: 'John',
+  email: 'john@example.com',
+  password: 'secret',
+});
+
+// This would be ignored (not in fillable)
+const user = await User.create({
+  name: 'John',
+  is_admin: true, // Ignored!
+});
+```
+
+<Warning>
+**Security Note:** Always use `fillable` or `guarded` to prevent users from setting sensitive fields like `is_admin` or `balance`.
+</Warning>
+
+## Attribute Casting
+
+Automatically convert database values to JavaScript types:
+
+```javascript
+class User extends Model {
+  casts = {
+    // Convert to Date objects
+    email_verified_at: 'date',
+    birth_date: 'date',
+    
+    // Convert to booleans
+    is_admin: 'boolean',
+    is_active: 'boolean',
+    
+    // Convert to numbers
+    age: 'number',
+    salary: 'float',
+    
+    // Parse JSON
+    preferences: 'json',
+    metadata: 'object',
+    tags: 'array',
+  };
+}
+
+// Usage
+const user = await User.find(1);
+console.log(user.is_admin); // true (boolean, not "1" or 1)
+console.log(user.preferences); // { theme: 'dark' } (object, not JSON string)
+console.log(user.email_verified_at); // Date object
+```
+
+### Available Cast Types
+
+| Cast Type | Description | Example |
+|-----------|-------------|---------|
+| `'boolean'` | Converts to true/false | `"1"` → `true` |
+| `'number'` | Converts to integer | `"42"` → `42` |
+| `'float'` | Converts to decimal | `"3.14"` → `3.14` |
+| `'string'` | Converts to string | `42` → `"42"` |
+| `'date'` | Converts to Date object | `"2023-12-01"` → `Date` |
+| `'json'` | Parses JSON string | `'{"a":1}'` → `{a:1}` |
+| `'object'` | Same as json | `'{"a":1}'` → `{a:1}` |
+| `'array'` | Parses JSON array | `'[1,2,3]'` → `[1,2,3]` |
+
+## Default Values
+
+Set default values for new model instances:
+
+```javascript
+class User extends Model {
+  attributes = {
+    is_active: true,
+    role: 'user',
+    preferences: { theme: 'light' },
+  };
+}
+
+// Usage
+const user = new User();
+console.log(user.is_active); // true
+console.log(user.role); // 'user'
+```
+
+## Hidden Attributes
+
+Hide sensitive fields from JSON output:
+
+```javascript
+class User extends Model {
+  hidden = ['password', 'remember_token', 'api_key'];
+}
+
+// Usage
+const user = await User.find(1);
+console.log(user.toJSON()); // password field won't be included
+
+// Temporarily show hidden fields
+console.log(user.makeVisible(['password']).toJSON());
+```
+
+## Mutators and Accessors
+
+Transform data when setting or getting attributes:
+
+### Mutators (Setters)
+
+Transform data when setting attributes:
+
+```javascript
+class User extends Model {
+  // Automatically hash passwords
+  setPasswordAttribute(value) {
+    return value ? bcrypt.hashSync(value, 10) : value;
+  }
+  
+  // Normalize email addresses
+  setEmailAttribute(value) {
+    return value ? value.toLowerCase().trim() : value;
+  }
+  
+  // Store names in title case
+  setNameAttribute(value) {
+    return value ? value.replace(/\w\S*/g, (txt) => 
+      txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
+    ) : value;
+  }
+}
+
+// Usage
+const user = await User.create({
+  name: 'john doe',      // Stored as "John Doe"
+  email: ' JOHN@EXAMPLE.COM ', // Stored as "john@example.com"
+  password: 'secret123', // Stored as hashed value
+});
+```
+
+### Accessors (Getters)
+
+Transform data when getting attributes:
+
+```javascript
+class User extends Model {
+  // Create computed attributes
+  getFullNameAttribute() {
+    return `${this.first_name} ${this.last_name}`;
+  }
+  
+  // Format URLs
+  getAvatarUrlAttribute() {
+    return this.avatar 
+      ? `/uploads/avatars/${this.avatar}`
+      : '/images/default-avatar.png';
+  }
+  
+  // Format dates
+  getFormattedCreatedAtAttribute() {
+    return this.created_at.toLocaleDateString();
+  }
+  
+  // Make accessors available in JSON output
+  appends = ['full_name', 'avatar_url', 'formatted_created_at'];
+}
+
+// Usage
+const user = await User.find(1);
+console.log(user.full_name); // "John Doe"
+console.log(user.avatar_url); // "/uploads/avatars/john.jpg"
+console.log(user.formatted_created_at); // "12/1/2023"
+
+// Accessors included in JSON when appends is defined
+const userData = user.toJSON();
+console.log(userData.full_name); // "John Doe"
+console.log(userData.avatar_url); // "/uploads/avatars/john.jpg"
+```
+
+## Model Events
+
+Hook into the model lifecycle:
+
+```javascript
+class User extends Model {
+  static {
+    // Before saving (create or update)
+    this.saving(async (user) => {
+      user.email = user.email.toLowerCase();
+    });
+    
+    // After saving
+    this.saved(async (user) => {
+      await clearUserCache(user.id);
+    });
+    
+    // Before creating
+    this.creating(async (user) => {
+      user.uuid = generateUuid();
+    });
+    
+    // After creating
+    this.created(async (user) => {
+      await sendWelcomeEmail(user.email);
+    });
+    
+    // Before updating
+    this.updating(async (user) => {
+      if (user.isDirty('email')) {
+        user.email_verified_at = null;
+      }
+    });
+    
+    // After updating
+    this.updated(async (user) => {
+      await syncUserData(user);
+    });
+    
+    // Before deleting
+    this.deleting(async (user) => {
+      await user.posts().delete();
+    });
+    
+    // After deleting
+    this.deleted(async (user) => {
+      await cleanupUserFiles(user.id);
+    });
+  }
+}
+```
+
+<Info>
+**Available Events:**
+- `saving` / `saved` - Before/after create or update
+- `creating` / `created` - Before/after create
+- `updating` / `updated` - Before/after update
+- `deleting` / `deleted` - Before/after delete
+- `restoring` / `restored` - Before/after soft delete restore
+</Info>
+
+## Query Scopes
+
+Create reusable query constraints:
+
+```javascript
+class Post extends Model {
+  // Simple scope
+  static scopePublished(query) {
+    return query.where('is_published', true);
+  }
+  
+  // Scope with parameters
+  static scopeOfType(query, type) {
+    return query.where('type', type);
+  }
+  
+  // Complex scope
+  static scopePopular(query, threshold = 100) {
+    return query
+      .where('views', '>', threshold)
+      .orderBy('views', 'desc');
+  }
+  
+  // Date-based scope
+  static scopeRecent(query, days = 7) {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return query.where('created_at', '>', date);
+  }
+}
+
+// Usage
+const posts = await Post.query()
+  .published()           // Uses scopePublished
+  .ofType('article')     // Uses scopeOfType
+  .popular(500)          // Uses scopePopular with parameter
+  .recent(30)            // Uses scopeRecent with parameter
+  .get();
+```
+
+## Working with Model Instances
+
+### Creating Records
+
+```javascript
+// Method 1: create() - saves immediately
+const user = await User.create({
+  name: 'John Doe',
+  email: 'john@example.com',
+});
+
+// Method 2: new + save()
+const user = new User({
+  name: 'John Doe',
+  email: 'john@example.com',
+});
+await user.save();
+
+// Method 3: make() - doesn't save
+const user = User.make({
+  name: 'John Doe',
+  email: 'john@example.com',
+});
+// ... do something with user
+await user.save();
+```
+
+### Reading Records
+
+```javascript
+// Find by primary key
+const user = await User.find(1);
+const user = await User.findOrFail(1); // Throws error if not found
+
+// Find by other attributes
+const user = await User.findBy('email', 'john@example.com');
+
+// Get first record
+const user = await User.first();
+const user = await User.firstOrFail();
+
+// Get all records
+const users = await User.all();
+
+// Find or create
+const user = await User.firstOrCreate(
+  { email: 'john@example.com' },  // Search criteria
+  { name: 'John Doe' }            // Additional data if creating
+);
+
+// Update or create
+const user = await User.updateOrCreate(
+  { email: 'john@example.com' },  // Search criteria
+  { name: 'John Smith', is_active: true } // Data to update/create
+);
+```
+
+### Updating Records
+
+```javascript
+// Update single record
+const user = await User.find(1);
+user.name = 'John Smith';
+await user.save();
+
+// Or use update method
+await user.update({ name: 'John Smith' });
+
+// Update multiple records
+await User.query()
+  .where('is_active', false)
+  .update({ is_active: true });
+
+// Increment/decrement
+await user.increment('login_count');
+await user.decrement('credits', 5);
+```
+
+### Deleting Records
+
+```javascript
+// Delete single record
+const user = await User.find(1);
+await user.delete();
+
+// Delete multiple records
+await User.query()
+  .where('is_active', false)
+  .delete();
+
+// Soft delete (if enabled)
+await user.delete(); // Sets deleted_at
+await user.restore(); // Removes deleted_at
+
+// Force delete (permanent)
+await user.forceDelete();
+```
+
+## Model Utilities
+
+### Check Model State
+
+```javascript
+const user = await User.find(1);
+
+// Check if model exists in database
+console.log(user.exists); // true
+
+// Check if model has been modified
+user.name = 'New Name';
+console.log(user.isDirty()); // true
+console.log(user.isDirty('name')); // true
+console.log(user.isDirty('email')); // false
+
+// Get changed attributes
+console.log(user.getDirty()); // { name: 'New Name' }
+
+// Get original values
+console.log(user.getOriginal()); // Original data from database
+console.log(user.getOriginal('name')); // Original name value
+```
+
+### Convert to Different Formats
+
+```javascript
+const user = await User.find(1);
+
+// Convert to plain object (includes appended accessors)
+const userData = user.toJSON();
+
+// Convert to JSON string
+const jsonString = JSON.stringify(user);
+
+// Get only specific attributes
+const publicData = user.only(['id', 'name', 'email']);
+const privateData = user.except(['password']);
+
+// Temporarily append accessors
+const userWithAccessors = user.append(['full_name', 'avatar_url']).toJSON();
+```
+
+## Best Practices
+
+### 1. Use Descriptive Names
+
+```javascript
+// ✅ Good
+class BlogPost extends Model {
+  static table = 'blog_posts';
+}
+
+// ❌ Avoid
+class BP extends Model {
+  static table = 'bp';
+}
+```
+
+### 2. Always Use Mass Assignment Protection
+
+```javascript
+// ✅ Good
+class User extends Model {
+  fillable = ['name', 'email', 'password'];
+}
+
+// ❌ Dangerous
+class User extends Model {
+  static unguarded = true; // Anyone can set any field!
+}
+```
+
+### 3. Hide Sensitive Data
+
+```javascript
+class User extends Model {
+  hidden = ['password', 'remember_token', 'api_key'];
+}
+```
+
+### 4. Use Appropriate Casting
+
+```javascript
+class User extends Model {
+  casts = {
+    email_verified_at: 'date',
+    is_admin: 'boolean',
+    preferences: 'json',
+  };
+}
+```
+
+### 5. Organize Related Logic
+
+```javascript
+class User extends Model {
+  // Configuration at the top
+  static table = 'users';
+  static timestamps = true;
+  
+  // Mass assignment
+  fillable = ['name', 'email'];
+  hidden = ['password'];
+  
+  // Casting
+  casts = {
+    email_verified_at: 'date',
+    is_admin: 'boolean',
+  };
+  
+  // Relationships
+  posts() {
+    return this.hasMany('Post');
+  }
+  
+  // Scopes
+  static scopeActive(query) {
+    return query.where('is_active', true);
+  }
+  
+  // Mutators/Accessors
+  setEmailAttribute(value) {
+    return value.toLowerCase();
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Learn Queries"
+    icon="magnifying-glass"
+    href="/essentials/queries"
+  >
+    Discover how to find and filter your data
+  </Card>
+  <Card
+    title="Set Up Relationships"
+    icon="link"
+    href="/essentials/relationships"
+  >
+    Connect different models together
+  </Card>
+</CardGroup>

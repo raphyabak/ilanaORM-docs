@@ -1,0 +1,816 @@
+---
+title: 'Model Events'
+description: 'Hook into model lifecycle with powerful event system'
+---
+
+## What are Model Events?
+
+Model events are hooks that fire automatically during a model's lifecycle. They let you run custom code when models are created, updated, deleted, or restored.
+
+<Info>
+**Real-world analogy:** Model events are like automatic triggers in your daily routine. When you wake up (event), your coffee maker starts brewing (hook). When you leave home (event), your security system activates (hook). Events happen automatically, and hooks respond to them.
+</Info>
+
+## Available Events
+
+| Event | When it Fires | Use Cases |
+|-------|---------------|-----------|
+| `saving` | Before create or update | Validate data, set computed fields |
+| `saved` | After create or update | Clear cache, send notifications |
+| `creating` | Before create only | Set default values, generate IDs |
+| `created` | After create only | Send welcome emails, create related records |
+| `updating` | Before update only | Track changes, validate updates |
+| `updated` | After update only | Sync data, log changes |
+| `deleting` | Before delete | Clean up related data, check permissions |
+| `deleted` | After delete | Remove files, send notifications |
+| `restoring` | Before soft delete restore | Validate restore, prepare data |
+| `restored` | After soft delete restore | Re-enable features, notify users |
+
+## Basic Event Usage
+
+### Defining Events in Models
+
+```javascript
+// User.js
+class User extends Model {
+  static {
+    // Register events when class is loaded
+    this.saving(async (user) => {
+      // Normalize email
+      user.email = user.email.toLowerCase().trim();
+      
+      // Set display name if not provided
+      if (!user.display_name) {
+        user.display_name = user.name;
+      }
+    });
+    
+    this.saved(async (user) => {
+      // Clear user cache
+      await cache.forget(`user:${user.id}`);
+    });
+    
+    this.creating(async (user) => {
+      // Generate UUID if not provided
+      if (!user.uuid) {
+        user.uuid = generateUuid();
+      }
+      
+      // Set default role
+      if (!user.role) {
+        user.role = 'user';
+      }
+    });
+    
+    this.created(async (user) => {
+      // Send welcome email
+      await sendWelcomeEmail(user.email);
+      
+      
+      // Create user profile
+      await user.profile().create({
+        bio: '',
+        avatar: null,
+      });
+      
+      // Log user registration
+      console.log(`New user registered: ${user.email}`);
+    });
+  }
+}
+```
+
+### Event with Conditions
+
+```javascript
+class Post extends Model {
+  static {
+    this.updating(async (post) => {
+      // If status changed to published
+      if (post.isDirty('status') && post.status === 'published') {
+        post.published_at = new Date();
+        
+        // Generate slug if not set
+        if (!post.slug) {
+          post.slug = generateSlug(post.title);
+        }
+      }
+      
+      // If content changed, update reading time
+      if (post.isDirty('content')) {
+        post.reading_time = calculateReadingTime(post.content);
+      }
+    });
+    
+    this.updated(async (post) => {
+      // If post was published, notify subscribers
+      if (post.wasChanged('status') && post.status === 'published') {
+        await notifySubscribers(post);
+      }
+      
+      // Clear post cache
+      await cache.forget(`post:${post.id}`);
+    });
+  }
+}
+```
+
+## Advanced Event Patterns
+
+### Conditional Events
+
+```javascript
+class Order extends Model {
+  static {
+    this.updating(async (order) => {
+      const oldStatus = order.getOriginal('status');
+      const newStatus = order.status;
+      
+      // Handle status transitions
+      if (oldStatus !== newStatus) {
+        switch (newStatus) {
+          case 'paid':
+            order.paid_at = new Date();
+            await order.load('items.product');
+            
+            // Reduce inventory
+            for (const item of order.items) {
+              await item.product.decrement('stock_quantity', item.quantity);
+            }
+            break;
+            
+          case 'shipped':
+            order.shipped_at = new Date();
+            order.tracking_number = generateTrackingNumber();
+            break;
+            
+          case 'cancelled':
+            order.cancelled_at = new Date();
+            
+            // Restore inventory if was paid
+            if (oldStatus === 'paid') {
+              await order.load('items.product');
+              for (const item of order.items) {
+                await item.product.increment('stock_quantity', item.quantity);
+              }
+            }
+            break;
+        }
+      }
+    });
+    
+    this.updated(async (order) => {
+      // Send status update emails
+      if (order.wasChanged('status')) {
+        await sendOrderStatusEmail(order);
+      }
+    });
+  }
+}
+```
+
+### Async Event Handling
+
+```javascript
+class User extends Model {
+  static {
+    this.created(async (user) => {
+      // Run multiple async operations
+      await Promise.all([
+        sendWelcomeEmail(user.email),
+        createUserProfile(user.id),
+        addToMailingList(user.email),
+        logUserRegistration(user),
+      ]);
+    });
+    
+    this.deleted(async (user) => {
+      // Clean up user data
+      await Promise.all([
+        deleteUserFiles(user.id),
+        removeFromMailingList(user.email),
+        anonymizeUserData(user.id),
+        notifyAdmins(`User ${user.email} deleted their account`),
+      ]);
+    });
+  }
+}
+```
+
+### Error Handling in Events
+
+```javascript
+class User extends Model {
+  static {
+    this.created(async (user) => {
+      try {
+        await sendWelcomeEmail(user.email);
+      } catch (error) {
+        // Log error but don't fail user creation
+        console.error('Failed to send welcome email:', error);
+        
+        // Queue for retry
+        await queueWelcomeEmail(user.id);
+      }
+      
+      try {
+        await createUserProfile(user.id);
+      } catch (error) {
+        // This is critical, so we might want to fail
+        console.error('Failed to create user profile:', error);
+        throw error;
+      }
+    });
+    
+    this.saving(async (user) => {
+      // Validation that should prevent saving
+      if (user.email && !isValidEmail(user.email)) {
+        throw new Error('Invalid email format');
+      }
+      
+      if (user.age && user.age < 13) {
+        throw new Error('Users must be at least 13 years old');
+      }
+    });
+  }
+}
+```
+
+## Event Context and Data
+
+### Accessing Original Data
+
+```javascript
+class Product extends Model {
+  static {
+    this.updating(async (product) => {
+      const originalPrice = product.getOriginal('price');
+      const newPrice = product.price;
+      
+      // Log significant price changes
+      if (originalPrice && newPrice) {
+        const changePercent = Math.abs((newPrice - originalPrice) / originalPrice) * 100;
+        
+        if (changePercent > 20) {
+          await logPriceChange({
+            product_id: product.id,
+            old_price: originalPrice,
+            new_price: newPrice,
+            change_percent: changePercent,
+          });
+        }
+      }
+    });
+    
+    this.updated(async (product) => {
+      // Check what changed
+      const changes = product.getChanges();
+      
+      if (changes.price) {
+        await notifyPriceWatchers(product.id, changes.price);
+      }
+      
+      if (changes.stock_quantity) {
+        await updateInventoryAlerts(product.id, changes.stock_quantity);
+      }
+    });
+  }
+}
+```
+
+### Event Data Helpers
+
+```javascript
+class User extends Model {
+  static {
+    this.updating(async (user) => {
+      // Check if specific field changed
+      if (user.isDirty('email')) {
+        user.email_verified_at = null;
+        await sendEmailVerification(user.email);
+      }
+      
+      if (user.isDirty('password')) {
+        user.password_changed_at = new Date();
+        await logSecurityEvent(user.id, 'password_changed');
+      }
+    });
+    
+    this.updated(async (user) => {
+      // Get all changes
+      const changes = user.getChanges();
+      
+      // Log important changes
+      const importantFields = ['email', 'role', 'is_active'];
+      const importantChanges = Object.keys(changes)
+        .filter(key => importantFields.includes(key))
+        .reduce((obj, key) => {
+          obj[key] = changes[key];
+          return obj;
+        }, {});
+      
+      if (Object.keys(importantChanges).length > 0) {
+        await auditLog.create({
+          user_id: user.id,
+          action: 'user_updated',
+          changes: importantChanges,
+        });
+      }
+    });
+  }
+}
+```
+
+## Global Events
+
+### Model-Specific Global Events
+
+```javascript
+// EventServiceProvider.js
+const User = require('./models/User');
+const Post = require('./models/Post');
+
+class EventServiceProvider {
+  static register() {
+    // Global user events
+    User.observe({
+      created: async (user) => {
+        await this.handleUserCreated(user);
+      },
+      
+      updated: async (user) => {
+        await this.handleUserUpdated(user);
+      },
+    });
+    
+    // Global post events
+    Post.observe({
+      created: async (post) => {
+        await this.handlePostCreated(post);
+      },
+    });
+  }
+  
+  static async handleUserCreated(user) {
+    // Global user creation logic
+    await analytics.track('user_registered', {
+      user_id: user.id,
+      email: user.email,
+      source: user.registration_source,
+    });
+  }
+  
+  static async handleUserUpdated(user) {
+    // Global user update logic
+    if (user.wasChanged('email')) {
+      await analytics.track('user_email_changed', {
+        user_id: user.id,
+        old_email: user.getOriginal('email'),
+        new_email: user.email,
+      });
+    }
+  }
+  
+  static async handlePostCreated(post) {
+    // Global post creation logic
+    await searchIndex.add(post);
+    await analytics.track('post_created', {
+      post_id: post.id,
+      user_id: post.user_id,
+      category: post.category,
+    });
+  }
+}
+
+// Register events on app startup
+EventServiceProvider.register();
+```
+
+### Cross-Model Events
+
+```javascript
+// Handle events across different models
+class CrossModelEvents {
+  static register() {
+    // When user is deleted, clean up related data
+    User.observe({
+      deleting: async (user) => {
+        // Delete user's posts
+        await user.posts().delete();
+        
+        // Delete user's comments
+        await user.comments().delete();
+        
+        // Remove from all groups
+        await user.groups().detach();
+      },
+    });
+    
+    // When post is published, update author stats
+    Post.observe({
+      updated: async (post) => {
+        if (post.wasChanged('status') && post.status === 'published') {
+          const author = await post.author();
+          await author.increment('published_posts_count');
+        }
+      },
+    });
+    
+    // When order is completed, update product sales
+    Order.observe({
+      updated: async (order) => {
+        if (order.wasChanged('status') && order.status === 'completed') {
+          await order.load('items.product');
+          
+          for (const item of order.items) {
+            await item.product.increment('sales_count', item.quantity);
+          }
+        }
+      },
+    });
+  }
+}
+```
+
+## Event-Driven Architecture
+
+### Event Dispatching
+
+```javascript
+// EventDispatcher.js
+class EventDispatcher {
+  static listeners = new Map();
+  
+  static listen(event, callback) {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, []);
+    }
+    this.listeners.get(event).push(callback);
+  }
+  
+  static async dispatch(event, data) {
+    const callbacks = this.listeners.get(event) || [];
+    
+    // Run all listeners
+    await Promise.all(
+      callbacks.map(callback => callback(data))
+    );
+  }
+}
+
+// Register listeners
+EventDispatcher.listen('user.created', async (user) => {
+  await sendWelcomeEmail(user.email);
+});
+
+EventDispatcher.listen('user.created', async (user) => {
+  await createUserProfile(user.id);
+});
+
+EventDispatcher.listen('order.completed', async (order) => {
+  await generateInvoice(order.id);
+});
+
+// Use in model events
+class User extends Model {
+  static {
+    this.created(async (user) => {
+      await EventDispatcher.dispatch('user.created', user);
+    });
+  }
+}
+```
+
+### Queue-Based Events
+
+```javascript
+// QueuedEventHandler.js
+const Queue = require('bull');
+const eventQueue = new Queue('model events');
+
+class QueuedEventHandler {
+  static async queueEvent(eventName, modelData) {
+    await eventQueue.add(eventName, {
+      model: modelData.constructor.name,
+      id: modelData.id,
+      data: modelData.toJSON(),
+      timestamp: new Date(),
+    });
+  }
+}
+
+// Process queued events
+eventQueue.process('user.created', async (job) => {
+  const { data } = job.data;
+  
+  // Send welcome email (can retry if fails)
+  await sendWelcomeEmail(data.email);
+  
+  // Create user profile
+  await createUserProfile(data.id);
+});
+
+// Use in models
+class User extends Model {
+  static {
+    this.created(async (user) => {
+      // Queue non-critical events
+      await QueuedEventHandler.queueEvent('user.created', user);
+    });
+  }
+}
+```
+
+## Testing Events
+
+### Mocking Events
+
+```javascript
+// test/UserTest.js
+describe('User Events', () => {
+  let emailSpy;
+  
+  beforeEach(() => {
+    emailSpy = jest.spyOn(emailService, 'sendWelcomeEmail');
+  });
+  
+  afterEach(() => {
+    emailSpy.mockRestore();
+  });
+  
+  test('sends welcome email on user creation', async () => {
+    const user = await User.create({
+      name: 'Test User',
+      email: 'test@example.com',
+    });
+    
+    expect(emailSpy).toHaveBeenCalledWith('test@example.com');
+  });
+  
+  test('normalizes email on save', async () => {
+    const user = await User.create({
+      name: 'Test User',
+      email: '  TEST@EXAMPLE.COM  ',
+    });
+    
+    expect(user.email).toBe('test@example.com');
+  });
+});
+```
+
+### Event Testing Helpers
+
+```javascript
+// test/helpers/EventTester.js
+class EventTester {
+  static capturedEvents = [];
+  
+  static captureEvents(modelClass, events = []) {
+    // Note: This is a simplified example for testing
+    // In practice, you would need to intercept the static block registration
+    
+    events.forEach(eventName => {
+      const originalMethod = modelClass[eventName];
+      
+      modelClass[eventName] = (callback) => {
+        const wrappedCallback = async (model) => {
+          this.capturedEvents.push({
+            event: eventName,
+            model: model.constructor.name,
+            id: model.id,
+            data: model.toJSON(),
+          });
+          
+          // Call original callback
+          await callback(model);
+        };
+        
+        // Call original method with wrapped callback
+        if (originalMethod) {
+          originalMethod.call(modelClass, wrappedCallback);
+        }
+      };
+    });
+  }
+  
+  static getEvents(eventName = null, modelName = null) {
+    return this.capturedEvents.filter(event => {
+      if (eventName && event.event !== eventName) return false;
+      if (modelName && event.model !== modelName) return false;
+      return true;
+    });
+  }
+  
+  static clearEvents() {
+    this.capturedEvents = [];
+  }
+}
+
+// Usage in tests
+describe('Post Events', () => {
+  beforeEach(() => {
+    EventTester.captureEvents(Post, ['created', 'updated']);
+    EventTester.clearEvents();
+  });
+  
+  test('fires created event', async () => {
+    await Post.create({ title: 'Test Post' });
+    
+    const events = EventTester.getEvents('created', 'Post');
+    expect(events).toHaveLength(1);
+    expect(events[0].data.title).toBe('Test Post');
+  });
+});
+```
+
+## Performance Considerations
+
+### Async Event Optimization
+
+```javascript
+class User extends Model {
+  static {
+    this.created(async (user) => {
+      // Critical operations (block user creation if they fail)
+      await createUserProfile(user.id);
+      
+      // Non-critical operations (run in background)
+      setImmediate(async () => {
+        try {
+          await Promise.all([
+            sendWelcomeEmail(user.email),
+            addToMailingList(user.email),
+            updateAnalytics(user),
+          ]);
+        } catch (error) {
+          console.error('Background user creation tasks failed:', error);
+        }
+      });
+    });
+  }
+}
+```
+
+### Event Batching
+
+```javascript
+// BatchEventProcessor.js
+class BatchEventProcessor {
+  static batches = new Map();
+  static batchSize = 10;
+  static batchTimeout = 1000; // 1 second
+  
+  static addToBatch(eventName, data) {
+    if (!this.batches.has(eventName)) {
+      this.batches.set(eventName, []);
+      
+      // Set timeout to process batch
+      setTimeout(() => {
+        this.processBatch(eventName);
+      }, this.batchTimeout);
+    }
+    
+    const batch = this.batches.get(eventName);
+    batch.push(data);
+    
+    // Process if batch is full
+    if (batch.length >= this.batchSize) {
+      this.processBatch(eventName);
+    }
+  }
+  
+  static async processBatch(eventName) {
+    const batch = this.batches.get(eventName);
+    if (!batch || batch.length === 0) return;
+    
+    this.batches.delete(eventName);
+    
+    try {
+      await this.handleBatch(eventName, batch);
+    } catch (error) {
+      console.error(`Batch processing failed for ${eventName}:`, error);
+    }
+  }
+  
+  static async handleBatch(eventName, batch) {
+    switch (eventName) {
+      case 'user.created':
+        await this.batchSendWelcomeEmails(batch);
+        break;
+      case 'post.viewed':
+        await this.batchUpdateViewCounts(batch);
+        break;
+    }
+  }
+  
+  static async batchSendWelcomeEmails(users) {
+    const emails = users.map(user => ({
+      to: user.email,
+      subject: 'Welcome!',
+      template: 'welcome',
+      data: { name: user.name },
+    }));
+    
+    await emailService.sendBatch(emails);
+  }
+}
+```
+
+## Best Practices
+
+### 1. Keep Events Focused
+
+```javascript
+// ✅ Good - focused events
+static {
+  this.creating(async (user) => {
+    user.email = user.email.toLowerCase();
+  });
+  
+  this.created(async (user) => {
+    await sendWelcomeEmail(user.email);
+  });
+}
+
+// ❌ Bad - doing too much
+static {
+  this.created(async (user) => {
+    user.email = user.email.toLowerCase(); // Should be in 'creating'
+    await sendWelcomeEmail(user.email);
+    await createProfile(user.id);
+    await addToMailingList(user.email);
+    await updateAnalytics(user);
+    // ... too much in one event
+  });
+}
+```
+
+### 2. Handle Errors Gracefully
+
+```javascript
+// ✅ Good - graceful error handling
+static {
+  this.created(async (user) => {
+    try {
+      await sendWelcomeEmail(user.email);
+    } catch (error) {
+      console.error('Welcome email failed:', error);
+      // Don't throw - user creation should succeed
+    }
+  });
+}
+```
+
+### 3. Use Appropriate Event Types
+
+```javascript
+// ✅ Good - using right events
+static {
+  this.creating(async (user) => {
+    // Set defaults before saving
+    user.role = user.role || 'user';
+  });
+  
+  this.created(async (user) => {
+    // Side effects after saving
+    await sendWelcomeEmail(user.email);
+  });
+}
+```
+
+### 4. Document Event Side Effects
+
+```javascript
+/**
+ * User Model Events:
+ * 
+ * creating: Normalizes email, sets default role
+ * created: Sends welcome email, creates profile
+ * updating: Validates changes, tracks modifications
+ * updated: Clears cache, syncs external systems
+ * deleting: Checks permissions, cleans related data
+ * deleted: Removes files, sends notifications
+ */
+class User extends Model {
+  // ... events
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Model Observers"
+    icon="eye"
+    href="/advanced/observers"
+  >
+    Organize event logic with observer classes
+  </Card>
+  <Card
+    title="Custom Casting"
+    icon="wand-magic-sparkles"
+    href="/advanced/casting"
+  >
+    Transform data with custom cast classes
+  </Card>
+</CardGroup>

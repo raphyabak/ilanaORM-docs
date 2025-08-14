@@ -1,0 +1,657 @@
+---
+title: 'Queries'
+description: 'Learn how to find, filter, and retrieve data with IlanaORM'
+---
+
+## What is Querying?
+
+Querying is how you ask your database for specific information. Instead of getting all records, you can filter, sort, and limit results to get exactly what you need.
+
+<Info>
+**Real-world analogy:** Querying is like using filters on a shopping website. Instead of seeing all products, you filter by category, price range, brand, etc., to find exactly what you want.
+</Info>
+
+## Basic Queries
+
+### Getting All Records
+
+```javascript
+// Get all users
+const users = await User.all();
+
+// Get all active users (using a scope)
+const activeUsers = await User.active().get();
+```
+
+### Finding Single Records
+
+```javascript
+// Find by primary key
+const user = await User.find(1);
+
+// Find by primary key or throw error
+const user = await User.findOrFail(1);
+
+// Find by any column
+const user = await User.findBy('email', 'john@example.com');
+
+// Get first record
+const user = await User.first();
+
+// Get first record or throw error
+const user = await User.firstOrFail();
+```
+
+<Tip>
+**When to use what?**
+- `find()` - When you have the ID and it's okay if the record doesn't exist
+- `findOrFail()` - When you have the ID and the record must exist
+- `findBy()` - When searching by a specific column value
+- `first()` - When you want the first record from a query
+</Tip>
+
+## The Query Builder
+
+The query builder lets you chain methods to build complex queries:
+
+```javascript
+const users = await User.query()
+  .where('is_active', true)
+  .where('age', '>', 18)
+  .orderBy('name')
+  .limit(10)
+  .get();
+```
+
+<Info>
+**How chaining works:** Each method returns a query builder object, so you can keep adding more conditions. Think of it like building a sentence: "Get users WHERE active is true AND age is greater than 18, ORDER BY name, LIMIT to 10."
+</Info>
+
+## Where Clauses
+
+### Basic Where Conditions
+
+```javascript
+// Simple equality
+const users = await User.query()
+  .where('is_active', true)
+  .get();
+
+// With operators
+const adults = await User.query()
+  .where('age', '>', 18)
+  .where('age', '<=', 65)
+  .get();
+
+// Multiple conditions (AND)
+const premiumUsers = await User.query()
+  .where('is_active', true)
+  .where('subscription', 'premium')
+  .where('credits', '>', 0)
+  .get();
+```
+
+### Available Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `=` | Equal (default) | `where('age', 25)` |
+| `>` | Greater than | `where('age', '>', 18)` |
+| `>=` | Greater than or equal | `where('age', '>=', 21)` |
+| `<` | Less than | `where('price', '<', 100)` |
+| `<=` | Less than or equal | `where('price', '<=', 50)` |
+| `!=` or `<>` | Not equal | `where('status', '!=', 'banned')` |
+| `like` | Pattern matching | `where('name', 'like', '%john%')` |
+| `ilike` | Case-insensitive like | `where('name', 'ilike', '%JOHN%')` |
+
+### OR Conditions
+
+```javascript
+// Users who are admin OR moderator
+const staff = await User.query()
+  .where('role', 'admin')
+  .orWhere('role', 'moderator')
+  .get();
+
+// Complex OR conditions
+const eligibleUsers = await User.query()
+  .where('is_active', true)
+  .where((query) => {
+    query.where('age', '>', 18)
+         .orWhere('has_parent_permission', true);
+  })
+  .get();
+```
+
+### Where In / Not In
+
+```javascript
+// Users with specific roles
+const staff = await User.query()
+  .whereIn('role', ['admin', 'moderator', 'editor'])
+  .get();
+
+// Users without specific roles
+const regularUsers = await User.query()
+  .whereNotIn('role', ['admin', 'moderator'])
+  .get();
+
+// Using arrays of IDs
+const specificUsers = await User.query()
+  .whereIn('id', [1, 5, 10, 15])
+  .get();
+```
+
+### Null Checks
+
+```javascript
+// Users with verified emails
+const verifiedUsers = await User.query()
+  .whereNotNull('email_verified_at')
+  .get();
+
+// Users without profile pictures
+const usersWithoutAvatars = await User.query()
+  .whereNull('avatar')
+  .get();
+```
+
+### Between Values
+
+```javascript
+// Users aged between 18 and 65
+const workingAgeUsers = await User.query()
+  .whereBetween('age', [18, 65])
+  .get();
+
+// Posts from last month
+const lastMonth = await Post.query()
+  .whereBetween('created_at', [
+    new Date('2023-11-01'),
+    new Date('2023-11-30')
+  ])
+  .get();
+```
+
+### Date Queries
+
+```javascript
+// Posts created today
+const todaysPosts = await Post.query()
+  .whereDate('created_at', new Date())
+  .get();
+
+// Posts from December 2023
+const decemberPosts = await Post.query()
+  .whereMonth('created_at', 12)
+  .whereYear('created_at', 2023)
+  .get();
+
+// Posts from this year
+const thisYearsPosts = await Post.query()
+  .whereYear('created_at', new Date().getFullYear())
+  .get();
+```
+
+### JSON Queries
+
+For databases that support JSON (PostgreSQL, MySQL):
+
+```javascript
+// Users with dark theme preference
+const darkThemeUsers = await User.query()
+  .whereJsonContains('preferences', { theme: 'dark' })
+  .get();
+
+// Users with more than 3 tags
+const taggedUsers = await User.query()
+  .whereJsonLength('tags', '>', 3)
+  .get();
+
+// Users with specific nested JSON value
+const notificationUsers = await User.query()
+  .whereJsonContains('settings->notifications->email', true)
+  .get();
+```
+
+## Ordering Results
+
+```javascript
+// Order by single column
+const users = await User.query()
+  .orderBy('name')
+  .get();
+
+// Order by multiple columns
+const users = await User.query()
+  .orderBy('role')
+  .orderBy('name', 'desc')
+  .get();
+
+// Random order
+const randomUsers = await User.query()
+  .inRandomOrder()
+  .limit(5)
+  .get();
+
+// Order by raw SQL
+const users = await User.query()
+  .orderByRaw('CASE WHEN role = "admin" THEN 1 ELSE 2 END')
+  .get();
+```
+
+## Limiting and Pagination
+
+### Basic Limiting
+
+```javascript
+// Get first 10 users
+const users = await User.query()
+  .limit(10)
+  .get();
+
+// Skip first 20, then get 10 (pagination)
+const users = await User.query()
+  .offset(20)
+  .limit(10)
+  .get();
+
+// Get users 21-30
+const users = await User.query()
+  .skip(20)
+  .take(10)
+  .get();
+```
+
+### Built-in Pagination
+
+```javascript
+// Standard pagination
+const users = await User.query()
+  .where('is_active', true)
+  .paginate(1, 15); // page 1, 15 per page
+
+console.log(users.data); // Array of users
+console.log(users.total); // Total count
+console.log(users.currentPage); // 1
+console.log(users.perPage); // 15
+console.log(users.lastPage); // Last page number
+
+// Simple pagination (no total count)
+const users = await User.query()
+  .where('is_active', true)
+  .simplePaginate(1, 15);
+```
+
+## Aggregates
+
+Get summary information about your data:
+
+```javascript
+// Count records
+const userCount = await User.query().count();
+const activeUserCount = await User.query()
+  .where('is_active', true)
+  .count();
+
+// Sum values
+const totalCredits = await User.query().sum('credits');
+
+// Average values
+const averageAge = await User.query().avg('age');
+
+// Min/Max values
+const youngestAge = await User.query().min('age');
+const oldestAge = await User.query().max('age');
+
+// Multiple aggregates
+const stats = await User.query()
+  .select('role')
+  .selectRaw('COUNT(*) as count')
+  .selectRaw('AVG(age) as average_age')
+  .groupBy('role')
+  .get();
+```
+
+## Grouping and Having
+
+```javascript
+// Group users by role
+const roleStats = await User.query()
+  .select('role')
+  .selectRaw('COUNT(*) as count')
+  .groupBy('role')
+  .get();
+
+// Only show roles with more than 5 users
+const popularRoles = await User.query()
+  .select('role')
+  .selectRaw('COUNT(*) as count')
+  .groupBy('role')
+  .having('count', '>', 5)
+  .get();
+
+// Complex grouping
+const monthlyStats = await Post.query()
+  .selectRaw('YEAR(created_at) as year')
+  .selectRaw('MONTH(created_at) as month')
+  .selectRaw('COUNT(*) as post_count')
+  .selectRaw('AVG(views) as avg_views')
+  .groupBy('year', 'month')
+  .orderBy('year', 'desc')
+  .orderBy('month', 'desc')
+  .get();
+```
+
+## Joins
+
+Combine data from multiple tables:
+
+```javascript
+// Inner join
+const postsWithAuthors = await Post.query()
+  .join('users', 'posts.user_id', 'users.id')
+  .select('posts.*', 'users.name as author_name')
+  .get();
+
+// Left join (includes posts without authors)
+const allPosts = await Post.query()
+  .leftJoin('users', 'posts.user_id', 'users.id')
+  .select('posts.*', 'users.name as author_name')
+  .get();
+
+// Multiple joins
+const postsWithDetails = await Post.query()
+  .join('users', 'posts.user_id', 'users.id')
+  .join('categories', 'posts.category_id', 'categories.id')
+  .select(
+    'posts.*',
+    'users.name as author_name',
+    'categories.name as category_name'
+  )
+  .get();
+```
+
+<Info>
+**When to use joins vs relationships:** Use joins when you need specific data from related tables in a single query. Use relationships (covered in the next section) when you want to work with related models as objects.
+</Info>
+
+## Raw Queries
+
+Sometimes you need to write custom SQL:
+
+```javascript
+// Raw where conditions
+const users = await User.query()
+  .whereRaw('age > ? AND credits < ?', [25, 100])
+  .get();
+
+// Raw select
+const users = await User.query()
+  .selectRaw('*, YEAR(created_at) as registration_year')
+  .get();
+
+// Raw order by
+const users = await User.query()
+  .orderByRaw('CASE WHEN role = "admin" THEN 1 ELSE 2 END')
+  .get();
+
+// Completely raw query
+const results = await User.query()
+  .raw('SELECT role, COUNT(*) as count FROM users GROUP BY role');
+```
+
+<Warning>
+**Security Note:** Always use parameter binding (`?`) in raw queries to prevent SQL injection attacks. Never concatenate user input directly into SQL strings.
+</Warning>
+
+## Conditional Queries
+
+Build queries based on conditions:
+
+```javascript
+async function getUsers(filters = {}) {
+  let query = User.query();
+  
+  // Traditional approach
+  if (filters.role) {
+    query = query.where('role', filters.role);
+  }
+  
+  if (filters.isActive !== undefined) {
+    query = query.where('is_active', filters.isActive);
+  }
+  
+  if (filters.minAge) {
+    query = query.where('age', '>=', filters.minAge);
+  }
+  
+  return await query.get();
+}
+
+// Using when() method (cleaner)
+async function getUsersWithWhen(filters = {}) {
+  return await User.query()
+    .when(filters.role, (query, role) => {
+      query.where('role', role);
+    })
+    .when(filters.isActive !== undefined, (query) => {
+      query.where('is_active', filters.isActive);
+    })
+    .when(filters.minAge, (query, minAge) => {
+      query.where('age', '>=', minAge);
+    })
+    .get();
+}
+```
+
+## Exists Queries
+
+Check if related records exist:
+
+```javascript
+// Users who have posts
+const authorsWithPosts = await User.query()
+  .whereExists((query) => {
+    query.select('*')
+         .from('posts')
+         .whereRaw('posts.user_id = users.id');
+  })
+  .get();
+
+// Users who don't have posts
+const usersWithoutPosts = await User.query()
+  .whereNotExists((query) => {
+    query.select('*')
+         .from('posts')
+         .whereRaw('posts.user_id = users.id');
+  })
+  .get();
+```
+
+## Query Scopes
+
+Reusable query logic (defined in your model):
+
+```javascript
+// In your Post model
+class Post extends Model {
+  static scopePublished(query) {
+    return query.where('is_published', true);
+  }
+  
+  static scopePopular(query, threshold = 100) {
+    return query.where('views', '>', threshold);
+  }
+  
+  static scopeRecent(query, days = 7) {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return query.where('created_at', '>', date);
+  }
+}
+
+// Usage
+const posts = await Post.query()
+  .published()
+  .popular(500)
+  .recent(30)
+  .orderBy('views', 'desc')
+  .get();
+```
+
+## Performance Tips
+
+### 1. Use Specific Selects
+
+```javascript
+// ❌ Gets all columns (slower)
+const users = await User.all();
+
+// ✅ Gets only needed columns (faster)
+const users = await User.query()
+  .select('id', 'name', 'email')
+  .get();
+```
+
+### 2. Use Limits
+
+```javascript
+// ❌ Gets all records (could be millions)
+const users = await User.query().where('is_active', true).get();
+
+// ✅ Limits results
+const users = await User.query()
+  .where('is_active', true)
+  .limit(100)
+  .get();
+```
+
+### 3. Use Indexes
+
+Make sure your database has indexes on columns you query frequently:
+
+```javascript
+// If you often query by email, make sure there's an index
+const user = await User.findBy('email', 'john@example.com');
+
+// If you often filter by role and status, consider a compound index
+const users = await User.query()
+  .where('role', 'admin')
+  .where('is_active', true)
+  .get();
+```
+
+### 4. Use Eager Loading for Relationships
+
+```javascript
+// ❌ N+1 problem (many queries)
+const users = await User.all();
+for (const user of users) {
+  console.log(user.posts); // Each access triggers a query
+}
+
+// ✅ Eager loading (single query)
+const users = await User.with('posts').get();
+for (const user of users) {
+  console.log(user.posts); // No additional queries
+}
+```
+
+## Common Query Patterns
+
+### Search Functionality
+
+```javascript
+async function searchUsers(searchTerm) {
+  return await User.query()
+    .where((query) => {
+      query.where('name', 'like', `%${searchTerm}%`)
+           .orWhere('email', 'like', `%${searchTerm}%`)
+           .orWhere('username', 'like', `%${searchTerm}%`);
+    })
+    .where('is_active', true)
+    .orderBy('name')
+    .limit(50)
+    .get();
+}
+```
+
+### Dashboard Statistics
+
+```javascript
+async function getDashboardStats() {
+  const [
+    totalUsers,
+    activeUsers,
+    newUsersToday,
+    topUsers
+  ] = await Promise.all([
+    User.query().count(),
+    User.query().where('is_active', true).count(),
+    User.query().whereDate('created_at', new Date()).count(),
+    User.query()
+        .orderBy('credits', 'desc')
+        .limit(10)
+        .select('id', 'name', 'credits')
+        .get()
+  ]);
+  
+  return {
+    totalUsers,
+    activeUsers,
+    newUsersToday,
+    topUsers
+  };
+}
+```
+
+### Filtering with Multiple Options
+
+```javascript
+async function getFilteredPosts(filters) {
+  return await Post.query()
+    .when(filters.category, (query, category) => {
+      query.where('category_id', category);
+    })
+    .when(filters.author, (query, author) => {
+      query.where('user_id', author);
+    })
+    .when(filters.published !== undefined, (query) => {
+      query.where('is_published', filters.published);
+    })
+    .when(filters.dateFrom, (query, dateFrom) => {
+      query.where('created_at', '>=', dateFrom);
+    })
+    .when(filters.dateTo, (query, dateTo) => {
+      query.where('created_at', '<=', dateTo);
+    })
+    .when(filters.search, (query, search) => {
+      query.where((q) => {
+        q.where('title', 'like', `%${search}%`)
+         .orWhere('content', 'like', `%${search}%`);
+      });
+    })
+    .orderBy('created_at', 'desc')
+    .paginate(filters.page || 1, filters.perPage || 15);
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Learn Relationships"
+    icon="link"
+    href="/essentials/relationships"
+  >
+    Connect different models together
+  </Card>
+  <Card
+    title="Database Migrations"
+    icon="database"
+    href="/database/migrations"
+  >
+    Set up and modify your database structure
+  </Card>
+</CardGroup>

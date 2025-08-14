@@ -1,0 +1,353 @@
+---
+title: "API Reference"
+description: "Complete API documentation for IlanaORM"
+---
+
+## Overview
+
+This API reference provides comprehensive documentation for all IlanaORM methods, classes, and functionality. Each section includes detailed explanations, parameters, return values, and practical examples.
+
+## Quick Reference
+
+### Model Operations
+
+| Method             | Description                     | Example                                                            |
+| ------------------ | ------------------------------- | ------------------------------------------------------------------ |
+| `all()`            | Get all records                 | `User.all()`                                                       |
+| `create()`         | Create new record               | `User.create({ name: 'John' })`                                    |
+| `find()`           | Find by primary key             | `User.find(1)`                                                     |
+| `findBy()`         | Find by column value            | `User.findBy('email', 'john@example.com')`                         |
+| `findOrFail()`     | Find by primary key or throw    | `User.findOrFail(1)`                                               |
+| `first()`          | Get first matching record       | `User.first()`                                                     |
+| `firstOrFail()`    | First record or throw           | `User.firstOrFail()`                                               |
+| `firstOrCreate()`  | Get first matching or create    | `User.firstOrCreate({email: 'john@example.com'}, {name: 'John'})`  |
+| `firstOrNew()`     | Find or new instance            | `User.firstOrNew({email: 'john@example.com'}, {name: 'John'})`     |
+| `updateOrCreate()` | Update existing or create new   | `User.updateOrCreate({email: 'john@example.com'}, {name: 'John'})` |
+| `make()`           | Create new instance (not saved) | `User.make({ name: 'John' })`                                      |
+| `insert()`         | Insert raw data                 | `User.insert([{name: 'John'}, {name: 'Jane'}])`                    |
+| `insertGetId()`    | Insert and get ID               | `User.insertGetId({name: 'John'})`                                 |
+| `upsert()`         | Upsert records                  | `User.upsert(data, ['email'], ['name'])`                           |
+| `destroy()`        | Delete by IDs                   | `User.destroy([1, 2, 3])`                                          |
+| `latest()`         | Order by column desc            | `User.latest('created_at')`                                        |
+| `oldest()`         | Order by column asc             | `User.oldest('created_at')`                                        |
+| `query()`          | Get query builder               | `User.query().where('active', true)`                               |
+| `with()`           | Eager load relations            | `User.with('posts').get()`                                         |
+| `withCount()`      | Load relation counts            | `User.withCount('posts').get()`                                    |
+| `on()`             | Use specific connection         | `User.on('mysql_secondary').get()`                                 |
+| `withTrashed()`    | Include soft deleted            | `User.withTrashed().get()`                                         |
+| `onlyTrashed()`    | Only soft deleted               | `User.onlyTrashed().get()`                                         |
+| `withoutTrashed()` | Exclude soft deleted            | `User.withoutTrashed().get()`                                      |
+| `update()`         | Update record                   | `user.update({ name: 'Jane' })`                                    |
+| `save()`           | Save model                      | `user.save()`                                                      |
+| `delete()`         | Delete record                   | `user.delete()`                                                    |
+| `forceDelete()`    | Force delete (permanent)        | `user.forceDelete()`                                               |
+| `restore()`        | Restore soft deleted            | `user.restore()`                                                   |
+| `load()`           | Lazy load relations             | `user.load('posts')`                                               |
+| `loadMissing()`    | Load missing relations          | `user.loadMissing('posts', 'roles')`                               |
+
+### Query Builder
+
+| Method                | Description                     | Example                                                      |
+| --------------------- | ------------------------------- | ------------------------------------------------------------ |
+| `where()`             | Add WHERE clause                | `query.where('active', true)`                                |
+| `orWhere()`           | Add OR WHERE clause             | `query.orWhere('role', 'admin')`                             |
+| `whereIn()`           | WHERE IN clause                 | `query.whereIn('role', ['admin', 'editor'])`                 |
+| `whereNotIn()`        | WHERE NOT IN clause             | `query.whereNotIn('status', ['banned'])`                     |
+| `whereNull()`         | WHERE NULL clause               | `query.whereNull('deleted_at')`                              |
+| `whereNotNull()`      | WHERE NOT NULL clause           | `query.whereNotNull('email_verified_at')`                    |
+| `whereBetween()`      | WHERE BETWEEN clause            | `query.whereBetween('age', [18, 65])`                        |
+| `whereNotBetween()`   | WHERE NOT BETWEEN clause        | `query.whereNotBetween('age', [65, 100])`                    |
+| `whereDate()`         | WHERE date clause               | `query.whereDate('created_at', '2023-12-01')`                |
+| `whereMonth()`        | WHERE month clause              | `query.whereMonth('created_at', 12)`                         |
+| `whereYear()`         | WHERE year clause               | `query.whereYear('created_at', 2023)`                        |
+| `whereDay()`          | WHERE day clause                | `query.whereDay('created_at', 15)`                           |
+| `whereTime()`         | WHERE time clause               | `query.whereTime('created_at', '14:30')`                     |
+| `whereRaw()`          | Raw WHERE clause                | `query.whereRaw('age > ? AND salary < ?', [25, 50000])`      |
+| `whereExists()`       | WHERE EXISTS clause             | `query.whereExists(subquery)`                                |
+| `whereNotExists()`    | WHERE NOT EXISTS clause         | `query.whereNotExists(subquery)`                             |
+| `whereJsonContains()` | JSON contains clause            | `query.whereJsonContains('preferences', {theme: 'dark'})`    |
+| `whereJsonLength()`   | JSON length clause              | `query.whereJsonLength('tags', '>', 3)`                      |
+| `when()`              | Conditional query               | `query.when(condition, callback)`                            |
+| `unless()`            | Conditional query (inverse)     | `query.unless(condition, callback)`                          |
+| `orderBy()`           | Order results                   | `query.orderBy('created_at', 'desc')`                        |
+| `latest()`            | Order by column desc            | `query.latest('created_at')`                                 |
+| `oldest()`            | Order by column asc             | `query.oldest('created_at')`                                 |
+| `inRandomOrder()`     | Random order                    | `query.inRandomOrder()`                                      |
+| `groupBy()`           | Group by columns                | `query.groupBy('role')`                                      |
+| `having()`            | Having clause                   | `query.having('count', '>', 10)`                             |
+| `havingRaw()`         | Raw having clause               | `query.havingRaw('COUNT(*) > ?', [10])`                      |
+| `limit()`             | Limit results                   | `query.limit(10)`                                            |
+| `offset()`            | Offset results                  | `query.offset(20)`                                           |
+| `take()`              | Take results (alias for limit)  | `query.take(10)`                                             |
+| `skip()`              | Skip results (alias for offset) | `query.skip(20)`                                             |
+| `forPage()`           | For page                        | `query.forPage(2, 15)`                                       |
+| `select()`            | Select columns                  | `query.select('id', 'name', 'email')`                        |
+| `selectRaw()`         | Raw select                      | `query.selectRaw('COUNT(*) as count')`                       |
+| `addSelect()`         | Add select columns              | `query.addSelect('created_at')`                              |
+| `distinct()`          | Distinct results                | `query.distinct()`                                           |
+| `join()`              | Join tables                     | `query.join('users', 'posts.user_id', 'users.id')`           |
+| `leftJoin()`          | Left join                       | `query.leftJoin('profiles', 'users.id', 'profiles.user_id')` |
+| `rightJoin()`         | Right join                      | `query.rightJoin('roles', 'users.role_id', 'roles.id')`      |
+| `crossJoin()`         | Cross join                      | `query.crossJoin('categories')`                              |
+| `innerJoin()`         | Inner join                      | `query.innerJoin('posts', 'users.id', 'posts.user_id')`      |
+| `count()`             | Count records                   | `query.count()`                                              |
+| `sum()`               | Sum column                      | `query.sum('salary')`                                        |
+| `avg()`               | Average column                  | `query.avg('age')`                                           |
+| `min()`               | Minimum value                   | `query.min('age')`                                           |
+| `max()`               | Maximum value                   | `query.max('salary')`                                        |
+| `get()`               | Execute query                   | `query.get()`                                                |
+| `first()`             | Get first result                | `query.first()`                                              |
+| `firstOrFail()`       | First or throw                  | `query.firstOrFail()`                                        |
+| `find()`              | Find by ID                      | `query.find(1)`                                              |
+| `findOrFail()`        | Find or throw                   | `query.findOrFail(1)`                                        |
+| `pluck()`             | Get column values               | `query.pluck('name')`                                        |
+| `exists()`            | Check existence                 | `query.exists()`                                             |
+| `doesntExist()`       | Check non-existence             | `query.doesntExist()`                                        |
+| `paginate()`          | Paginate results                | `query.paginate(1, 10)`                                      |
+| `simplePaginate()`    | Simple pagination               | `query.simplePaginate(1, 10)`                                |
+| `cursorPaginate()`    | Cursor pagination               | `query.cursorPaginate(10, cursor)`                           |
+| `chunk()`             | Process in chunks               | `query.chunk(100, callback)`                                 |
+| `lazy()`              | Lazy iteration                  | `query.lazy(500)`                                            |
+| `cursor()`            | Cursor iteration                | `query.cursor(1000)`                                         |
+| `insert()`            | Insert data                     | `query.insert(data)`                                         |
+| `insertGetId()`       | Insert and get ID               | `query.insertGetId(data)`                                    |
+| `update()`            | Update records                  | `query.update(data)`                                         |
+| `delete()`            | Delete records                  | `query.delete()`                                             |
+| `upsert()`            | Upsert records                  | `query.upsert(data, unique, update)`                         |
+| `with()`              | Eager load relations            | `query.with('posts')`                                        |
+| `withConstraints()`   | Constrained eager loading       | `query.withConstraints('posts', callback)`                   |
+| `withCount()`         | Load relation counts            | `query.withCount('posts')`                                   |
+| `whereHas()`          | Where has relation              | `query.whereHas('posts', callback)`                          |
+| `whereDoesntHave()`   | Where doesn't have relation     | `query.whereDoesntHave('posts')`                             |
+| `has()`               | Has relation                    | `query.has('posts', '>', 5)`                                 |
+| `lockForUpdate()`     | Lock for update                 | `query.lockForUpdate()`                                      |
+| `sharedLock()`        | Shared lock                     | `query.sharedLock()`                                         |
+| `skipLocked()`        | Skip locked                     | `query.skipLocked()`                                         |
+| `noWait()`            | No wait                         | `query.noWait()`                                             |
+| `clone()`             | Clone query                     | `query.clone()`                                              |
+
+### Relationships
+
+| Method             | Description             | Example                                                        |
+| ------------------ | ----------------------- | -------------------------------------------------------------- |
+| `hasOne()`         | One-to-one              | `this.hasOne('Profile')`                                       |
+| `hasMany()`        | One-to-many             | `this.hasMany('Post')`                                         |
+| `belongsTo()`      | Inverse relationship    | `this.belongsTo('User')`                                       |
+| `belongsToMany()`  | Many-to-many            | `this.belongsToMany('Role', 'user_roles')`                     |
+| `morphTo()`        | Polymorphic belongs to  | `this.morphTo('commentable')`                                  |
+| `morphMany()`      | Polymorphic one-to-many | `this.morphMany('Comment', 'commentable')`                     |
+| `hasManyThrough()` | Has many through        | `this.hasManyThrough('Post', 'User', 'country_id', 'user_id')` |
+| `with()`           | Eager loading           | `User.with('posts').get()`                                     |
+
+## Method Signatures
+
+### Standard Notation
+
+```javascript
+// Method signature format
+methodName(requiredParam, (optionalParam = defaultValue), ...restParams);
+
+// Return type notation
+// @returns {Promise<Model>} - Returns a Promise that resolves to a Model instance
+// @returns {QueryBuilder} - Returns a QueryBuilder instance for chaining
+// @returns {Collection} - Returns a Collection of Model instances
+```
+
+### Parameter Types
+
+| Type           | Description            | Example                                  |
+| -------------- | ---------------------- | ---------------------------------------- |
+| `string`       | Text value             | `'john@example.com'`                     |
+| `number`       | Numeric value          | `42`, `3.14`                             |
+| `boolean`      | True/false             | `true`, `false`                          |
+| `Object`       | Plain object           | `{ name: 'John', age: 30 }`              |
+| `Array`        | Array of values        | `[1, 2, 3]`, `['a', 'b', 'c']`           |
+| `Date`         | Date object            | `new Date()`                             |
+| `Function`     | Callback function      | `(query) => query.where('active', true)` |
+| `Model`        | Model instance         | `new User()`                             |
+| `QueryBuilder` | Query builder instance | `User.query()`                           |
+
+## Error Handling
+
+### Common Exceptions
+
+```javascript
+// ModelNotFoundException
+try {
+  const user = await User.findOrFail(999);
+} catch (error) {
+  if (error.name === "ModelNotFoundException") {
+    console.log("User not found");
+  }
+}
+
+// ValidationException
+try {
+  const user = await User.create({
+    email: "invalid-email",
+  });
+} catch (error) {
+  if (error.name === "ValidationException") {
+    console.log("Validation failed:", error.errors);
+  }
+}
+
+// QueryException
+try {
+  const users = await User.query().where("invalid_column", "value").get();
+} catch (error) {
+  if (error.name === "QueryException") {
+    console.log("Query failed:", error.message);
+  }
+}
+```
+
+### Error Types
+
+| Error                    | When it occurs                       | How to handle                   |
+| ------------------------ | ------------------------------------ | ------------------------------- |
+| `ModelNotFoundException` | Record not found with `findOrFail()` | Check if record exists first    |
+| `ValidationException`    | Model validation fails               | Validate input before saving    |
+| `QueryException`         | SQL query fails                      | Check column names and syntax   |
+| `RelationshipException`  | Relationship method fails            | Verify relationship definitions |
+| `ConnectionException`    | Database connection fails            | Check connection configuration  |
+
+## Response Formats
+
+### Single Model
+
+```javascript
+const user = await User.find(1);
+// Returns: User instance or null
+
+console.log(user.id); // 1
+console.log(user.name); // "John Doe"
+console.log(user.email); // "john@example.com"
+```
+
+### Collection
+
+```javascript
+const users = await User.all();
+// Returns: Collection instance
+
+console.log(users.length); // 5
+console.log(users[0].name); // "John Doe"
+
+// Collection methods
+users.forEach((user) => console.log(user.name));
+const names = users.pluck("name");
+const activeUsers = users.filter((user) => user.is_active);
+```
+
+### Paginated Results
+
+```javascript
+const result = await User.query().paginate(1, 10);
+// Returns: Pagination object
+
+console.log(result.data); // Array of User instances
+console.log(result.total); // Total count
+console.log(result.currentPage); // 1
+console.log(result.nextPage); // 2 (if exists)
+console.log(result.perPage); // 10
+console.log(result.lastPage); // Last page number
+console.log(result.from); // 1
+console.log(result.to); // 10
+```
+
+### Query Builder
+
+```javascript
+const query = User.query().where("active", true);
+// Returns: QueryBuilder instance
+
+// QueryBuilder is chainable
+const results = await query.orderBy("name").limit(10).get();
+```
+
+## Configuration Options
+
+### Model Configuration
+
+```javascript
+class User extends Model {
+  // Table configuration
+  static table = "users";
+  static primaryKey = "id";
+  static keyType = "number";
+  static incrementing = true;
+  static connection = "mysql";
+
+  // Timestamps
+  static timestamps = true;
+  static createdAt = "created_at";
+  static updatedAt = "updated_at";
+
+  // Soft deletes
+  static softDeletes = false;
+  static deletedAt = "deleted_at";
+
+  // Mass assignment
+  fillable = ["name", "email"];
+  guarded = ["id", "password"];
+
+  // Attribute casting
+  casts = {
+    email_verified_at: "date",
+    is_active: "boolean",
+    preferences: "json",
+  };
+
+  // Hidden attributes
+  hidden = ["password", "remember_token"];
+
+  // Appended accessors (available in JSON)
+  appends = ["full_name", "avatar_url"];
+
+  // Default values
+  attributes = {
+    is_active: true,
+    role: "user",
+  };
+}
+```
+
+### Query Configuration
+
+```javascript
+// Global query settings
+const query = User.query().on("mysql"); // Use specific connection
+```
+
+## Conventions
+
+### Naming Conventions
+
+| Convention           | Format                        | Example                              |
+| -------------------- | ----------------------------- | ------------------------------------ |
+| Model names          | PascalCase, singular          | `User`, `BlogPost`, `OrderItem`      |
+| Table names          | snake_case, plural            | `users`, `blog_posts`, `order_items` |
+| Column names         | snake_case                    | `first_name`, `email_verified_at`    |
+| Relationship methods | camelCase                     | `posts()`, `userProfile()`           |
+| Scope methods        | camelCase with `scope` prefix | `scopeActive()`, `scopePublished()`  |
+
+### File Structure
+
+```
+models/
+├── User.js
+├── Post.js
+└── Comment.js
+
+database/
+├── migrations/
+│   ├── 20231201_120000_create_users_table.js
+│   └── 20231201_130000_create_posts_table.js
+├── seeds/
+│   ├── UserSeeder.js
+│   └── PostSeeder.js
+└── factories/
+    ├── UserFactory.js
+    └── PostFactory.js
+```

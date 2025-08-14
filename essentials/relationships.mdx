@@ -1,0 +1,715 @@
+---
+title: 'Relationships'
+description: 'Connect your models together with powerful relationships'
+---
+
+## What are Relationships?
+
+Relationships define how different pieces of data connect to each other. Think of them as the connections between tables in your database.
+
+<Info>
+**Real-world analogy:** In a blog system:
+- A **User** writes many **Posts** (one-to-many)
+- A **Post** belongs to one **User** (belongs-to)
+- A **Post** can have many **Tags**, and **Tags** can be on many **Posts** (many-to-many)
+</Info>
+
+## One-to-One Relationships
+
+A one-to-one relationship means one record in a table is associated with exactly one record in another table. Think of it like a person and their passport - each person has one passport, and each passport belongs to one person.
+
+### Example: User has one Profile
+
+**Migration for users table:**
+```javascript
+export default class CreateUsersTable {
+  async up(schema) {
+    await schema.createTable('users', (table) => {
+      table.increments('id');
+      table.string('name').notNullable();
+      table.string('email').unique().notNullable();
+      table.timestamps(true, true);
+    });
+  }
+}
+```
+
+**Migration for profiles table:**
+```javascript
+export default class CreateProfilesTable {
+  async up(schema) {
+    await schema.createTable('profiles', (table) => {
+      table.increments('id');
+      table.integer('user_id').unsigned().notNullable();
+      table.text('bio').nullable();
+      table.string('website').nullable();
+      table.string('location').nullable();
+      table.timestamps(true, true);
+      
+      table.foreign('user_id').references('id').inTable('users').onDelete('CASCADE');
+      table.unique('user_id'); // Ensures one-to-one relationship
+    });
+  }
+}
+```
+
+**Model definitions:**
+```javascript
+// User model
+class User extends Model {
+  profile() {
+    return this.hasOne('Profile', 'user_id');
+  }
+}
+
+// Profile model  
+class Profile extends Model {
+  user() {
+    return this.belongsTo('User', 'user_id');
+  }
+}
+
+// Usage
+const user = await User.with('profile').find(1);
+console.log(user.profile.bio);
+
+const profile = await Profile.with('user').find(1);
+console.log(profile.user.name);
+```
+
+<Tip>
+**String References:** Always use string model names (`'Profile'`) instead of importing classes to avoid circular dependencies.
+</Tip>
+
+## One-to-Many Relationships
+
+A one-to-many relationship means one record can be associated with multiple records in another table. Think of it like a blog author and their posts - one author can write many posts, but each post belongs to only one author.
+
+### Example: User has many Posts
+
+**Migration for posts table:**
+```javascript
+export default class CreatePostsTable {
+  async up(schema) {
+    await schema.createTable('posts', (table) => {
+      table.increments('id');
+      table.string('title').notNullable();
+      table.text('content').notNullable();
+      table.integer('user_id').unsigned().notNullable();
+      table.boolean('is_published').defaultTo(false);
+      table.timestamps(true, true);
+      
+      table.foreign('user_id').references('id').inTable('users').onDelete('CASCADE');
+      table.index('user_id'); // Index for better query performance
+    });
+  }
+}
+```
+
+**Model definitions:**
+```javascript
+// User model
+class User extends Model {
+  posts() {
+    return this.hasMany('Post', 'user_id');
+  }
+}
+
+// Post model
+class Post extends Model {
+  author() {
+    return this.belongsTo('User', 'user_id');
+  }
+}
+
+// Usage
+const user = await User.with('posts').find(1);
+console.log(`${user.name} has ${user.posts.length} posts`);
+
+const post = await Post.with('author').find(1);
+console.log(`Written by: ${post.author.name}`);
+```
+
+## Many-to-Many Relationships
+
+A many-to-many relationship means multiple records in one table can be associated with multiple records in another table. Think of it like blog posts and tags - one post can have many tags, and one tag can be used on many posts. This requires a "pivot" or "junction" table to store the connections.
+
+### Example: Posts have many Tags
+
+**Migration for tags table:**
+```javascript
+export default class CreateTagsTable {
+  async up(schema) {
+    await schema.createTable('tags', (table) => {
+      table.increments('id');
+      table.string('name').unique().notNullable();
+      table.string('slug').unique().notNullable();
+      table.timestamps(true, true);
+    });
+  }
+}
+```
+
+**Migration for pivot table:**
+```javascript
+export default class CreatePostTagsTable {
+  async up(schema) {
+    await schema.createTable('post_tags', (table) => {
+      table.increments('id');
+      table.integer('post_id').unsigned().notNullable();
+      table.integer('tag_id').unsigned().notNullable();
+      table.timestamps(true, true);
+      
+      table.foreign('post_id').references('id').inTable('posts').onDelete('CASCADE');
+      table.foreign('tag_id').references('id').inTable('tags').onDelete('CASCADE');
+      
+      // Prevent duplicate relationships
+      table.unique(['post_id', 'tag_id']);
+      
+      // Indexes for better performance
+      table.index('post_id');
+      table.index('tag_id');
+    });
+  }
+}
+```
+
+**Model definitions:**
+```javascript
+// Post model
+class Post extends Model {
+  tags() {
+    return this.belongsToMany('Tag', 'post_tags', 'post_id', 'tag_id')
+      .withPivot('created_at')
+      .withTimestamps();
+  }
+}
+
+// Tag model
+class Tag extends Model {
+  posts() {
+    return this.belongsToMany('Post', 'post_tags', 'tag_id', 'post_id');
+  }
+}
+
+// Usage
+const post = await Post.with('tags').find(1);
+post.tags.forEach(tag => {
+  console.log(`Tag: ${tag.name}, Added: ${tag.pivot.created_at}`);
+});
+```
+
+## Polymorphic Relationships
+
+A polymorphic relationship allows one model to belong to multiple other model types. Think of it like comments that can be added to both blog posts and videos - the comment doesn't care what type of content it's attached to, it just knows it's "commentable".
+
+### Example: Comments on Posts and Videos
+
+**Migration for videos table:**
+```javascript
+export default class CreateVideosTable {
+  async up(schema) {
+    await schema.createTable('videos', (table) => {
+      table.increments('id');
+      table.string('title').notNullable();
+      table.text('description').nullable();
+      table.string('url').notNullable();
+      table.integer('user_id').unsigned().notNullable();
+      table.timestamps(true, true);
+      
+      table.foreign('user_id').references('id').inTable('users').onDelete('CASCADE');
+    });
+  }
+}
+```
+
+**Migration for comments table:**
+```javascript
+export default class CreateCommentsTable {
+  async up(schema) {
+    await schema.createTable('comments', (table) => {
+      table.increments('id');
+      table.text('content').notNullable();
+      table.integer('user_id').unsigned().notNullable();
+      
+      // Polymorphic columns
+      table.integer('commentable_id').unsigned().notNullable();
+      table.string('commentable_type').notNullable(); // 'Post' or 'Video'
+      
+      table.timestamps(true, true);
+      
+      table.foreign('user_id').references('id').inTable('users').onDelete('CASCADE');
+      
+      // Index for polymorphic relationship
+      table.index(['commentable_id', 'commentable_type']);
+    });
+  }
+}
+```
+
+**Model definitions:**
+```javascript
+// Comment model
+class Comment extends Model {
+  commentable() {
+    return this.morphTo('commentable');
+  }
+  
+  author() {
+    return this.belongsTo('User', 'user_id');
+  }
+}
+
+// Post model
+class Post extends Model {
+  comments() {
+    return this.morphMany('Comment', 'commentable');
+  }
+  
+  static {
+    this.register(); // Required for polymorphic relationships
+  }
+}
+
+// Video model
+class Video extends Model {
+  comments() {
+    return this.morphMany('Comment', 'commentable');
+  }
+  
+  static {
+    this.register();
+  }
+}
+
+// Usage
+const post = await Post.with('comments').find(1);
+const video = await Video.with('comments').find(1);
+
+const comment = await Comment.with('commentable').find(1);
+console.log(`Comment on: ${comment.commentable.constructor.name}`);
+```
+
+## Has-Many-Through
+
+A has-many-through relationship provides a shortcut to access distant relationships through an intermediate model. Think of it like getting all posts from a specific country - you go through users to get to their posts, but you want to skip the middle step.
+
+### Example: Country has many Posts through Users
+
+**Migration for countries table:**
+```javascript
+export default class CreateCountriesTable {
+  async up(schema) {
+    await schema.createTable('countries', (table) => {
+      table.increments('id');
+      table.string('name').unique().notNullable();
+      table.string('code', 2).unique().notNullable(); // ISO country code
+      table.timestamps(true, true);
+    });
+  }
+}
+```
+
+**Update users table migration:**
+```javascript
+export default class AddCountryToUsersTable {
+  async up(schema) {
+    await schema.table('users', (table) => {
+      table.integer('country_id').unsigned().nullable();
+      
+      table.foreign('country_id').references('id').inTable('countries').onDelete('SET NULL');
+      table.index('country_id');
+    });
+  }
+}
+```
+
+**Model definitions:**
+```javascript
+// Country model
+class Country extends Model {
+  users() {
+    return this.hasMany('User', 'country_id');
+  }
+  
+  // Get all posts from users in this country
+  posts() {
+    return this.hasManyThrough('Post', 'User', 'country_id', 'user_id');
+  }
+}
+
+// User model
+class User extends Model {
+  country() {
+    return this.belongsTo('Country', 'country_id');
+  }
+  
+  posts() {
+    return this.hasMany('Post', 'user_id');
+  }
+}
+
+// Post model
+class Post extends Model {
+  author() {
+    return this.belongsTo('User', 'user_id');
+  }
+}
+
+// Usage
+const country = await Country.with('posts').find(1);
+console.log(`${country.name} has ${country.posts.length} posts`);
+
+// Get posts with author information
+const countryWithPosts = await Country.with('posts.author').find(1);
+```
+
+## Eager Loading
+
+Load relationships efficiently to avoid N+1 queries.
+
+### Basic Eager Loading
+
+```javascript
+// ❌ N+1 Problem (many queries)
+const posts = await Post.all();
+for (const post of posts) {
+  console.log(post.author.name); // Each access triggers a query
+}
+
+// ✅ Eager Loading (single query)
+const posts = await Post.with('author').get();
+for (const post of posts) {
+  console.log(post.author.name); // No additional queries
+}
+```
+
+### Multiple Relationships
+
+```javascript
+const posts = await Post.with(['author', 'tags', 'comments']).get();
+```
+
+### Nested Relationships
+
+```javascript
+const posts = await Post.with('author.profile').get();
+console.log(posts[0].author.profile.bio);
+```
+
+### Conditional Eager Loading
+
+```javascript
+const posts = await Post.with({
+  author: (query) => query.select('id', 'name'),
+  tags: (query) => query.where('is_active', true),
+  comments: (query) => query.orderBy('created_at', 'desc').limit(5)
+}).get();
+```
+
+## Lazy Loading
+
+Load relationships on-demand after the model is retrieved.
+
+```javascript
+const post = await Post.find(1);
+
+// Load relationship later
+await post.load('author');
+console.log(post.author.name);
+
+// Load multiple relationships
+await post.load(['tags', 'comments']);
+
+// Load with constraints
+await post.load({
+  comments: (query) => query.orderBy('created_at', 'desc').limit(10)
+});
+```
+
+## Working with Relationships
+
+### Creating Related Records
+
+```javascript
+// Create related record
+const user = await User.find(1);
+const post = await user.posts().create({
+  title: 'New Post',
+  content: 'Post content...'
+});
+
+// Associate existing record
+const existingPost = await Post.find(5);
+await user.posts().save(existingPost);
+```
+
+### Many-to-Many Operations
+
+```javascript
+const post = await Post.find(1);
+
+// Attach tags
+await post.tags().attach([1, 2, 3]);
+
+// Attach with pivot data
+await post.tags().attach({
+  1: { created_by: 'admin' },
+  2: { created_by: 'editor' }
+});
+
+// Detach tags
+await post.tags().detach([1, 2]);
+
+// Sync tags (replace all)
+await post.tags().sync([1, 3, 5]);
+
+// Toggle tags
+await post.tags().toggle([1, 2, 3]);
+```
+
+### Querying Relationships
+
+```javascript
+// Query relationship
+const user = await User.find(1);
+const publishedPosts = await user.posts()
+  .where('is_published', true)
+  .orderBy('created_at', 'desc')
+  .get();
+
+// Count related records
+const postCount = await user.posts().count();
+
+// Check if relationship exists
+const hasPublishedPosts = await user.posts()
+  .where('is_published', true)
+  .exists();
+```
+
+## Relationship Constraints
+
+### Has Constraint
+
+Find records that have related records:
+
+```javascript
+// Users who have posts
+const authorsWithPosts = await User.has('posts').get();
+
+// Users with more than 5 posts
+const prolificAuthors = await User.has('posts', '>', 5).get();
+
+// Users with published posts
+const publishedAuthors = await User.whereHas('posts', (query) => {
+  query.where('is_published', true);
+}).get();
+```
+
+### Doesn't Have Constraint
+
+```javascript
+// Users without posts
+const usersWithoutPosts = await User.doesntHave('posts').get();
+
+// Users without published posts
+const unpublishedAuthors = await User.whereDoesntHave('posts', (query) => {
+  query.where('is_published', true);
+}).get();
+```
+
+## Advanced Relationship Patterns
+
+### Self-Referencing Relationships
+
+```javascript
+// User model with manager relationship
+class User extends Model {
+  manager() {
+    return this.belongsTo('User', 'manager_id');
+  }
+  
+  subordinates() {
+    return this.hasMany('User', 'manager_id');
+  }
+}
+
+// Usage
+const manager = await User.with('subordinates').find(1);
+const employee = await User.with('manager').find(5);
+```
+
+### Conditional Relationships
+
+```javascript
+class Post extends Model {
+  publishedComments() {
+    return this.hasMany('Comment', 'post_id')
+      .where('is_published', true);
+  }
+  
+  recentComments() {
+    return this.hasMany('Comment', 'post_id')
+      .where('created_at', '>', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+  }
+}
+```
+
+### Custom Foreign Keys
+
+```javascript
+class User extends Model {
+  posts() {
+    return this.hasMany('Post', 'author_id', 'id'); // custom foreign key
+  }
+  
+  profile() {
+    return this.hasOne('Profile', 'user_uuid', 'uuid'); // custom local key
+  }
+}
+```
+
+## Performance Tips
+
+### 1. Use Eager Loading
+
+```javascript
+// ❌ Slow - N+1 queries
+const posts = await Post.all();
+for (const post of posts) {
+  console.log(post.author.name);
+}
+
+// ✅ Fast - Single query
+const posts = await Post.with('author').get();
+```
+
+### 2. Select Only Needed Columns
+
+```javascript
+const posts = await Post.with({
+  author: (query) => query.select('id', 'name', 'email')
+}).get();
+```
+
+### 3. Use Constraints in Eager Loading
+
+```javascript
+const users = await User.with({
+  posts: (query) => query.where('is_published', true).limit(5)
+}).get();
+```
+
+### 4. Count Instead of Loading
+
+```javascript
+// ❌ Loads all posts just to count
+const user = await User.with('posts').find(1);
+const postCount = user.posts.length;
+
+// ✅ Just counts
+const user = await User.find(1);
+const postCount = await user.posts().count();
+```
+
+## Common Relationship Patterns
+
+### Blog System
+
+```javascript
+class User extends Model {
+  posts() { return this.hasMany('Post'); }
+  comments() { return this.hasMany('Comment'); }
+}
+
+class Post extends Model {
+  author() { return this.belongsTo('User'); }
+  comments() { return this.hasMany('Comment'); }
+  tags() { return this.belongsToMany('Tag', 'post_tags'); }
+  category() { return this.belongsTo('Category'); }
+}
+
+class Comment extends Model {
+  author() { return this.belongsTo('User'); }
+  post() { return this.belongsTo('Post'); }
+}
+```
+
+### E-commerce System
+
+```javascript
+class User extends Model {
+  orders() { return this.hasMany('Order'); }
+  cart() { return this.hasOne('Cart'); }
+}
+
+class Product extends Model {
+  category() { return this.belongsTo('Category'); }
+  orderItems() { return this.hasMany('OrderItem'); }
+  reviews() { return this.morphMany('Review', 'reviewable'); }
+}
+
+class Order extends Model {
+  user() { return this.belongsTo('User'); }
+  items() { return this.hasMany('OrderItem'); }
+}
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Circular Dependency Error" icon="exclamation-triangle">
+    **Problem:** Models importing each other cause circular dependencies
+    
+    **Solution:** Use string references instead of imports
+    ```javascript
+    // ❌ Don't do this
+    const Post = require('./Post');
+    return this.hasMany(Post);
+    
+    // ✅ Do this
+    return this.hasMany('Post');
+    ```
+  </Accordion>
+  
+  <Accordion title="Relationship Returns Undefined" icon="question">
+    **Problem:** Relationship method returns undefined
+    
+    **Solutions:**
+    - Check foreign key names match your database
+    - Ensure related model is registered for polymorphic relationships
+    - Verify table and column names are correct
+  </Accordion>
+  
+  <Accordion title="N+1 Query Problem" icon="database">
+    **Problem:** Too many database queries when accessing relationships
+    
+    **Solution:** Use eager loading with `with()`
+    ```javascript
+    // ❌ N+1 queries
+    const posts = await Post.all();
+    
+    // ✅ Single query
+    const posts = await Post.with('author').get();
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Database Migrations"
+    icon="database"
+    href="/database/migrations"
+  >
+    Learn to create and modify database tables
+  </Card>
+  <Card
+    title="Advanced Features"
+    icon="rocket"
+    href="/advanced/events"
+  >
+    Explore events, observers, and custom casting
+  </Card>
+</CardGroup>

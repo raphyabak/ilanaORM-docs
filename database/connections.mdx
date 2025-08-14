@@ -1,0 +1,769 @@
+---
+title: "Database Connections"
+description: "Manage multiple database connections and configurations"
+---
+
+## Understanding Database Connections
+
+Database connections are how your application communicates with databases. IlanaORM can manage multiple connections simultaneously, allowing you to work with different databases for different purposes.
+
+<Info>
+  **Real-world analogy:** Think of database connections like phone lines to
+  different offices. You might have one line to your main office (primary
+  database), another to your analytics department (reporting database), and a
+  third to your testing facility (test database).
+</Info>
+
+## Single Database Setup
+
+### Basic Configuration
+
+```javascript
+// ilana.config.js
+module.exports = {
+  default: "mysql",
+
+  connections: {
+    mysql: {
+      client: "mysql2",
+      connection: {
+        host: "localhost",
+        port: 3306,
+        user: "myapp_user",
+        password: "secure_password",
+        database: "myapp_database",
+        timezone: "UTC",
+      },
+    },
+  },
+};
+```
+
+### Using the Connection
+
+```javascript
+const User = require("./models/User");
+
+// Uses default connection automatically
+const users = await User.all();
+const user = await User.find(1);
+```
+
+## Multiple Database Connections
+
+### Configuration
+
+```javascript
+// ilana.config.js
+module.exports = {
+  default: "primary",
+
+  connections: {
+    // Main application database
+    primary: {
+      client: "mysql2",
+      connection: {
+        host: "primary-db.company.com",
+        port: 3306,
+        user: "app_user",
+        password: "app_password",
+        database: "main_app",
+        timezone: "UTC",
+      },
+    },
+
+    // Analytics database
+    analytics: {
+      client: "postgres",
+      connection: {
+        host: "analytics-db.company.com",
+        port: 5432,
+        user: "analytics_user",
+        password: "analytics_password",
+        database: "analytics_db",
+      },
+    },
+
+    // Reporting database (read-only)
+    reporting: {
+      client: "mysql2",
+      connection: {
+        host: "reporting-db.company.com",
+        port: 3306,
+        user: "readonly_user",
+        password: "readonly_password",
+        database: "reports",
+        timezone: "UTC",
+      },
+    },
+
+    // Local cache database
+    cache: {
+      client: "sqlite3",
+      connection: {
+        filename: "./cache.sqlite",
+      },
+      useNullAsDefault: true,
+    },
+  },
+};
+```
+
+### Using Specific Connections
+
+#### In Models
+
+```javascript
+// User model uses primary database (default)
+class User extends Model {
+  static table = "users";
+  // Uses default connection
+}
+
+// Analytics model uses analytics database
+class AnalyticsEvent extends Model {
+  static table = "events";
+  static connection = "analytics"; // Specify connection
+}
+
+// Report model uses reporting database
+class Report extends Model {
+  static table = "reports";
+  static connection = "reporting";
+}
+```
+
+#### In Queries
+
+```javascript
+// Use default connection
+const users = await User.all();
+
+// Use specific connection
+const events = await AnalyticsEvent.all();
+
+// Switch connection for a query
+const reportsFromPrimary = await Report.on("primary").all();
+const usersFromAnalytics = await User.on("analytics").all();
+```
+
+#### Runtime Connection Switching
+
+```javascript
+// Use specific connection for a query
+const events = await AnalyticsEvent.on("analytics").limit(100).get();
+
+// Switch connection for complex queries
+const results = await Report.on("reporting")
+  .selectRaw("COUNT(*) as total")
+  .where("created_at", ">", new Date())
+  .first();
+```
+
+## Connection Patterns
+
+### Read/Write Splitting
+
+```javascript
+// ilana.config.js
+module.exports = {
+  default: "write",
+
+  connections: {
+    // Write database (master)
+    write: {
+      client: "mysql2",
+      connection: {
+        host: "master-db.company.com",
+        user: "write_user",
+        password: "write_password",
+        database: "app_db",
+        timezone: "UTC",
+      },
+    },
+
+    // Read database (replica)
+    read: {
+      client: "mysql2",
+      connection: {
+        host: "replica-db.company.com",
+        user: "read_user",
+        password: "read_password",
+        database: "app_db",
+        timezone: "UTC",
+      },
+    },
+  },
+};
+```
+
+```javascript
+// Usage
+class User extends Model {
+  // Writes go to master
+  static async createUser(data) {
+    return await this.on("write").create(data);
+  }
+
+  // Reads can use replica
+  static async getUsers() {
+    return await this.on("read").all();
+  }
+
+  // Heavy reporting queries use read replica
+  static async getUserStats() {
+    return await this.on("read")
+      .selectRaw("role, COUNT(*) as count")
+      .groupBy("role")
+      .get();
+  }
+}
+```
+
+### Microservices Pattern
+
+```javascript
+// Different services use different databases
+module.exports = {
+  default: "users",
+
+  connections: {
+    // User service database
+    users: {
+      client: "postgres",
+      connection: {
+        host: "users-db.internal",
+        database: "users_service",
+      },
+    },
+
+    // Orders service database
+    orders: {
+      client: "mysql2",
+      connection: {
+        host: "orders-db.internal",
+        database: "orders_service",
+        timezone: "UTC",
+      },
+    },
+
+    // Inventory service database
+    inventory: {
+      client: "postgres",
+      connection: {
+        host: "inventory-db.internal",
+        database: "inventory_service",
+      },
+    },
+  },
+};
+```
+
+```javascript
+// Service-specific models
+class User extends Model {
+  static connection = "users";
+  static table = "users";
+}
+
+class Order extends Model {
+  static connection = "orders";
+  static table = "orders";
+}
+
+class Product extends Model {
+  static connection = "inventory";
+  static table = "products";
+}
+```
+
+### Environment-Based Connections
+
+```javascript
+// ilana.config.js
+require("dotenv").config();
+
+const connections = {
+  development: {
+    sqlite: {
+      client: "sqlite3",
+      connection: { filename: "./dev.sqlite" },
+      useNullAsDefault: true,
+    },
+  },
+
+  testing: {
+    sqlite: {
+      client: "sqlite3",
+      connection: { filename: ":memory:" },
+      useNullAsDefault: true,
+    },
+  },
+
+  staging: {
+    postgres: {
+      client: "pg",
+      connection: {
+        host: process.env.STAGING_DB_HOST,
+        database: process.env.STAGING_DB_NAME,
+        user: process.env.STAGING_DB_USER,
+        password: process.env.STAGING_DB_PASSWORD,
+      },
+    },
+  },
+
+  production: {
+    postgres: {
+      client: "pg",
+      connection: {
+        host: process.env.DB_HOST,
+        database: process.env.DB_NAME,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        ssl: { rejectUnauthorized: false },
+      },
+      pool: { min: 5, max: 20 },
+    },
+  },
+};
+
+const env = process.env.NODE_ENV || "development";
+
+module.exports = {
+  default: Object.keys(connections[env])[0],
+  connections: connections[env],
+};
+```
+
+## Connection Management
+
+### Connection Pooling
+
+```javascript
+// Configure connection pools
+module.exports = {
+  connections: {
+    mysql: {
+      client: "mysql2",
+      connection: {
+        host: "localhost",
+        database: "myapp",
+        user: "user",
+        password: "password",
+        timezone: "UTC",
+      },
+      pool: {
+        min: 2, // Minimum connections
+        max: 10, // Maximum connections
+        acquireTimeoutMillis: 30000, // Wait time for connection
+        createTimeoutMillis: 30000, // Time to create connection
+        destroyTimeoutMillis: 5000, // Time to destroy connection
+        idleTimeoutMillis: 30000, // Idle connection timeout
+        reapIntervalMillis: 1000, // Check for idle connections
+        createRetryIntervalMillis: 100, // Retry interval
+      },
+    },
+  },
+};
+```
+
+### Connection Health Checks
+
+```javascript
+// utils/healthCheck.js
+const Database = require("ilana-orm/database/connection");
+
+async function checkDatabaseHealth() {
+  const connections = ["primary", "analytics", "reporting"];
+  const results = {};
+
+  for (const connectionName of connections) {
+    try {
+      // Note: Direct Database.connection() access not available in IlanaORM
+      // Use model-based health checks instead
+      await SomeModel.on(connectionName).first();
+      results[connectionName] = { status: "healthy", error: null };
+    } catch (error) {
+      results[connectionName] = { status: "unhealthy", error: error.message };
+    }
+  }
+
+  return results;
+}
+
+// Usage in health endpoint
+app.get("/health/database", async (req, res) => {
+  const health = await checkDatabaseHealth();
+  const allHealthy = Object.values(health).every((h) => h.status === "healthy");
+
+  res.status(allHealthy ? 200 : 503).json(health);
+});
+```
+
+### Connection Retry Logic
+
+```javascript
+// utils/connectionRetry.js
+async function withRetry(operation, maxRetries = 3, delay = 1000) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt === maxRetries) {
+        throw error;
+      }
+
+      console.log(`Attempt ${attempt} failed, retrying in ${delay}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      delay *= 2; // Exponential backoff
+    }
+  }
+}
+
+// Usage
+const users = await withRetry(async () => {
+  return await User.on("primary").all();
+});
+```
+
+## Migrations with Multiple Connections
+
+### Connection-Specific Migrations
+
+```bash
+# Run migrations on specific connection
+npx ilana migrate --connection=analytics
+npx ilana migrate --connection=reporting
+
+# Check status of specific connection
+npx ilana migrate:status --connection=analytics
+```
+
+### Migration Configuration
+
+```javascript
+// ilana.config.js
+module.exports = {
+  connections: {
+    primary: {
+      client: "mysql2",
+      connection: {
+        /* ... */
+      },
+      migrations: {
+        directory: "./database/migrations/primary",
+        tableName: "migrations",
+      },
+    },
+
+    analytics: {
+      client: "postgres",
+      connection: {
+        /* ... */
+      },
+      migrations: {
+        directory: "./database/migrations/analytics",
+        tableName: "analytics_migrations",
+        schemaName: "analytics",
+      },
+    },
+  },
+};
+```
+
+### Cross-Connection Data Migration
+
+```javascript
+// Migration: sync_user_data_to_analytics.js
+const User = require("../../models/User");
+const UserProfile = require("../../models/UserProfile");
+
+class SyncUserDataToAnalytics {
+  async up(schema) {
+    // Get users from primary database
+    const users = await User.on("primary")
+      .select("id", "name", "email", "created_at")
+      .get();
+
+    // Insert into analytics database
+    if (users.length > 0) {
+      const profileData = users.map((user) => ({
+        user_id: user.id,
+        name: user.name,
+        email: user.email,
+        registered_at: user.created_at,
+        synced_at: new Date(),
+      }));
+
+      await UserProfile.on("analytics").insert(profileData);
+    }
+  }
+
+  async down(schema) {
+    await UserProfile.on("analytics").query().delete();
+  }
+}
+
+module.exports = SyncUserDataToAnalytics;
+```
+
+## Testing with Multiple Connections
+
+### Test Configuration
+
+```javascript
+// test/setup.js
+const config = require("../ilana.config");
+
+// Override connections for testing
+config.connections = {
+  primary: {
+    client: "sqlite3",
+    connection: { filename: ":memory:" },
+    useNullAsDefault: true,
+  },
+  analytics: {
+    client: "sqlite3",
+    connection: { filename: ":memory:" },
+    useNullAsDefault: true,
+  },
+};
+
+module.exports = config;
+```
+
+### Test Helpers
+
+```javascript
+// test/helpers/database.js
+const Database = require("ilana-orm/database/connection");
+
+class DatabaseHelper {
+  static async clearAllDatabases() {
+    const connections = ["primary", "analytics"];
+
+    for (const connectionName of connections) {
+      const db = Database.connection(connectionName);
+
+      // Get all tables
+      const tables = await db.raw(`
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name NOT LIKE 'sqlite_%'
+      `);
+
+      // Clear each table
+      for (const table of tables) {
+        await db(table.name).del();
+      }
+    }
+  }
+
+  static async seedTestData() {
+    // Seed primary database
+    await User.on("primary").create({
+      name: "Test User",
+      email: "test@example.com",
+    });
+
+    // Seed analytics database
+    await AnalyticsEvent.on("analytics").create({
+      event_type: "user_login",
+      user_id: 1,
+      timestamp: new Date(),
+    });
+  }
+}
+
+module.exports = DatabaseHelper;
+```
+
+## Performance Optimization
+
+### Connection Monitoring
+
+```javascript
+// utils/connectionMonitor.js
+const Database = require("ilana-orm/database/connection");
+
+class ConnectionMonitor {
+  static logSlowQueries(threshold = 1000) {
+    const connections = ["primary", "analytics"];
+
+    connections.forEach((connectionName) => {
+      // Note: Direct Database.connection() access not available in IlanaORM
+      // Use model-based monitoring instead
+      console.log(
+        `Monitoring slow queries on ${connectionName} (threshold: ${threshold}ms)`
+      );
+    });
+  }
+
+  static async getConnectionStats() {
+    const stats = {};
+    const connections = ["primary", "analytics"];
+
+    for (const connectionName of connections) {
+      // Note: Direct pool access not available in IlanaORM
+      // Use connection health checks instead
+      try {
+        await SomeModel.on(connectionName).first();
+        stats[connectionName] = { status: "healthy" };
+      } catch (error) {
+        stats[connectionName] = { status: "unhealthy", error: error.message };
+      }
+    }
+
+    return stats;
+  }
+}
+
+module.exports = ConnectionMonitor;
+```
+
+### Query Distribution
+
+```javascript
+// utils/queryDistributor.js
+class QueryDistributor {
+  static async distributeRead(model, queryBuilder) {
+    const readConnections = ["read_replica_1", "read_replica_2"];
+    const connection = this.selectConnection(readConnections);
+
+    return await model.on(connection).query(queryBuilder);
+  }
+
+  static selectConnection(connections) {
+    // Simple round-robin
+    const index = Math.floor(Math.random() * connections.length);
+    return connections[index];
+  }
+
+  static async executeWithFallback(
+    model,
+    primaryConnection,
+    fallbackConnection,
+    operation
+  ) {
+    try {
+      return await model.on(primaryConnection)[operation]();
+    } catch (error) {
+      console.warn(
+        `Primary connection failed, using fallback: ${error.message}`
+      );
+      return await model.on(fallbackConnection)[operation]();
+    }
+  }
+}
+```
+
+## Best Practices
+
+### 1. Use Descriptive Connection Names
+
+```javascript
+// ✅ Good - clear purpose
+connections: {
+  user_service: { /* ... */ },
+  analytics_warehouse: { /* ... */ },
+  session_cache: { /* ... */ },
+}
+
+// ❌ Bad - unclear purpose
+connections: {
+  db1: { /* ... */ },
+  db2: { /* ... */ },
+  db3: { /* ... */ },
+}
+```
+
+### 2. Configure Appropriate Pool Sizes
+
+```javascript
+// ✅ Good - appropriate for use case
+connections: {
+  primary: {
+    pool: { min: 5, max: 20 }, // High traffic
+  },
+  analytics: {
+    pool: { min: 1, max: 5 },  // Occasional use
+  },
+  cache: {
+    pool: { min: 2, max: 10 }, // Moderate use
+  },
+}
+```
+
+### 3. Handle Connection Failures Gracefully
+
+```javascript
+// ✅ Good - graceful degradation
+async function getUserStats() {
+  try {
+    return await AnalyticsEvent.on("analytics").getStats();
+  } catch (error) {
+    console.error("Analytics database unavailable:", error.message);
+    return { error: "Analytics temporarily unavailable" };
+  }
+}
+```
+
+### 4. Document Connection Usage
+
+```javascript
+/**
+ * Database Connections:
+ *
+ * - primary: Main application data (users, posts, etc.)
+ * - analytics: Event tracking and analytics data
+ * - reporting: Read-only reporting database (replica)
+ * - cache: Session and temporary data storage
+ */
+module.exports = {
+  // ... configuration
+};
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection Pool Exhausted" icon="exclamation-triangle">
+    **Problem:** "Pool exhausted" or "Connection timeout" errors
+    
+    **Solutions:**
+    - Increase pool size: `pool: { max: 20 }`
+    - Check for connection leaks (unclosed connections)
+    - Reduce connection timeout: `acquireTimeoutMillis: 10000`
+    - Monitor slow queries that hold connections
+  </Accordion>
+  
+  <Accordion title="Connection Refused" icon="plug">
+    **Problem:** Cannot connect to database
+    
+    **Solutions:**
+    - Verify host, port, username, password
+    - Check network connectivity and firewall rules
+    - Ensure database server is running
+    - Test connection with database client tools
+  </Accordion>
+  
+  <Accordion title="Wrong Database Used" icon="database">
+    **Problem:** Query executed on wrong database
+    
+    **Solutions:**
+    - Explicitly specify connection: `Model.connection('specific')`
+    - Check model's static connection property
+    - Verify default connection in config
+    - Use connection-specific queries: `Model.on('connection_name')`
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Advanced Events" icon="bolt" href="/advanced/events">
+    Learn about model events and lifecycle hooks
+  </Card>
+  <Card title="Model Observers" icon="eye" href="/advanced/observers">
+    Organize event handling with observer classes
+  </Card>
+</CardGroup>

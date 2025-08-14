@@ -1,0 +1,123 @@
+---
+title: Introduction
+description: "Welcome to IlanaORM - A powerful, Eloquent-style ORM for Node.js"
+---
+
+<img className="block dark:hidden" src="/images/logo.png" alt="Hero Light" />
+<img className="hidden dark:block" src="/images/logo.png" alt="Hero Dark" />
+
+## What is IlanaORM?
+
+**Ìlànà** (pronounced "ee-LAH-nah") is a Yoruba word meaning "pattern," "system," or "protocol."
+
+IlanaORM is a fully-featured, Eloquent-style Object-Relational Mapping (ORM) library for Node.js that makes database interactions simple and intuitive. Think of it as a bridge between your JavaScript/TypeScript code and your database.
+
+<CardGroup cols={2}>
+  <Card title="Beginner Friendly" icon="graduation-cap" href="/quickstart">
+    Start building with simple, readable syntax that makes sense
+  </Card>
+  <Card title="TypeScript Ready" icon="code" href="/essentials/models">
+    Automatic TypeScript support with full type safety
+  </Card>
+  <Card title="Database Agnostic" icon="database" href="/database/connections">
+    Works with PostgreSQL, MySQL, and SQLite out of the box
+  </Card>
+  <Card title="Laravel Inspired" icon="heart" href="/essentials/relationships">
+    Familiar patterns if you've used Laravel's Eloquent ORM
+  </Card>
+</CardGroup>
+
+## Why Choose IlanaORM?
+
+### 🚀 **Easy to Learn**
+
+If you're new to ORMs, IlanaORM uses simple, English-like methods that make database operations intuitive:
+
+```javascript
+// Instead of writing SQL like this:
+// SELECT * FROM users WHERE age > 18 AND is_active = true
+
+// You write this:
+const users = await User.query()
+  .where("age", ">", 18)
+  .where("is_active", true)
+  .get();
+```
+
+### 🛡️ **Type Safe**
+
+Automatic TypeScript support means fewer bugs and better developer experience:
+
+```typescript
+const user = await User.find(1); // TypeScript knows this is a User instance
+user.name = "John"; // ✅ Valid
+user.invalidProperty = "test"; // ❌ TypeScript error
+```
+
+### 🔗 **Powerful Relationships**
+
+Define how your data connects with simple relationship methods:
+
+```javascript
+class User extends Model {
+  posts() {
+    return this.hasMany("Post"); // A user has many posts
+  }
+}
+
+// Load user with all their posts
+const user = await User.with("posts").find(1);
+```
+
+### 🏗️ **Complete Toolkit**
+
+Everything you need for database management:
+
+- **Models** - Represent your data
+- **Migrations** - Version control for your database
+- **Seeders** - Populate your database with test data
+- **Factories** - Generate realistic fake data
+- **Query Builder** - Build complex queries with ease
+
+## What You'll Learn
+
+This documentation will teach you:
+
+<AccordionGroup>
+  <Accordion title="Database Basics" icon="database">
+    How databases work, what tables and relationships are, and why ORMs are
+    useful
+  </Accordion>
+
+  <Accordion title="Setting Up IlanaORM" icon="gear">
+    Installation, configuration, and connecting to your database
+  </Accordion>
+
+  <Accordion title="Creating Models" icon="cube">
+    How to represent your data as JavaScript/TypeScript classes
+  </Accordion>
+
+  <Accordion title="Querying Data" icon="magnifying-glass">
+    Finding, filtering, and retrieving data from your database
+  </Accordion>
+
+  <Accordion title="Relationships" icon="link">
+    How to connect different types of data together
+  </Accordion>
+
+  <Accordion title="Advanced Features" icon="rocket">
+    Events, observers, custom casting, and performance optimization
+  </Accordion>
+</AccordionGroup>
+
+## Ready to Start?
+
+<Card title="Quick Start Guide" icon="play" href="/quickstart">
+  Get IlanaORM up and running in 5 minutes
+</Card>
+
+<Tip>
+  **New to databases?** Don't worry! This documentation explains everything from
+  the ground up. We'll start with the basics and gradually introduce more
+  advanced concepts.
+</Tip>

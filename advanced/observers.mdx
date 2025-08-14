@@ -1,0 +1,832 @@
+---
+title: 'Model Observers'
+description: 'Organize model event handling with observer classes'
+---
+
+## What are Model Observers?
+
+Model observers are dedicated classes that handle model events. Instead of putting all event logic directly in your models, observers provide a clean, organized way to separate concerns and make your code more maintainable.
+
+<Info>
+**Real-world analogy:** Think of observers like specialized staff at a hotel. Instead of the front desk handling everything (check-in, luggage, room service, maintenance), you have dedicated staff for each area. The bellhop observes guest arrivals, the housekeeper observes checkouts, and the concierge observes special requests.
+</Info>
+
+## Creating Observers
+
+### Using the CLI
+
+```bash
+# Create an observer
+npx ilana make:observer UserObserver
+
+# Create observer for specific model
+npx ilana make:observer UserObserver --model=User
+```
+
+### Basic Observer Structure
+
+```javascript
+// observers/UserObserver.js
+class UserObserver {
+  async creating(user) {
+    // Logic before creating user
+    user.email = user.email.toLowerCase().trim();
+    
+    if (!user.uuid) {
+      user.uuid = this.generateUuid();
+    }
+  }
+  
+  async created(user) {
+    // Logic after creating user
+    await this.sendWelcomeEmail(user);
+    await this.createUserProfile(user);
+  }
+  
+  async updating(user) {
+    // Logic before updating user
+    if (user.isDirty('email')) {
+      user.email_verified_at = null;
+    }
+  }
+  
+  async updated(user) {
+    // Logic after updating user
+    await this.clearUserCache(user);
+    await this.syncUserData(user);
+  }
+  
+  async deleting(user) {
+    // Logic before deleting user
+    await this.cleanupUserData(user);
+  }
+  
+  async deleted(user) {
+    // Logic after deleting user
+    await this.removeUserFiles(user);
+    await this.notifyAdmins(user);
+  }
+  
+  // Helper methods
+  generateUuid() {
+    return require('crypto').randomUUID();
+  }
+  
+  async sendWelcomeEmail(user) {
+    const emailService = require('../services/EmailService');
+    await emailService.sendWelcome(user.email, user.name);
+  }
+  
+  async createUserProfile(user) {
+    await user.profile().create({
+      bio: '',
+      avatar: null,
+      preferences: {},
+    });
+  }
+  
+  async clearUserCache(user) {
+    const cache = require('../services/CacheService');
+    await cache.forget(`user:${user.id}`);
+  }
+  
+  async syncUserData(user) {
+    const syncService = require('../services/SyncService');
+    await syncService.syncUser(user);
+  }
+  
+  async cleanupUserData(user) {
+    // Delete user's posts, comments, etc.
+    await user.posts().delete();
+    await user.comments().delete();
+  }
+  
+  async removeUserFiles(user) {
+    const fileService = require('../services/FileService');
+    await fileService.removeUserFiles(user.id);
+  }
+  
+  async notifyAdmins(user) {
+    const notificationService = require('../services/NotificationService');
+    await notificationService.notifyAdmins(`User ${user.email} deleted their account`);
+  }
+}
+
+module.exports = UserObserver;
+```
+
+## Registering Observers
+
+### Single Observer Registration
+
+```javascript
+// In your model or bootstrap file
+const User = require('./models/User');
+const UserObserver = require('./observers/UserObserver');
+
+// Register the observer
+User.observe(UserObserver);
+```
+
+### Multiple Observer Registration
+
+```javascript
+// Register multiple observers for the same model
+const User = require('./models/User');
+const UserObserver = require('./observers/UserObserver');
+const AuditObserver = require('./observers/AuditObserver');
+const EmailObserver = require('./observers/EmailObserver');
+
+User.observe(UserObserver);
+User.observe(AuditObserver);
+User.observe(EmailObserver);
+```
+
+### Service Provider Pattern
+
+```javascript
+// providers/ObserverServiceProvider.js
+const User = require('../models/User');
+const Post = require('../models/Post');
+const Order = require('../models/Order');
+
+const UserObserver = require('../observers/UserObserver');
+const PostObserver = require('../observers/PostObserver');
+const OrderObserver = require('../observers/OrderObserver');
+const AuditObserver = require('../observers/AuditObserver');
+
+class ObserverServiceProvider {
+  static register() {
+    // Register model-specific observers
+    User.observe(UserObserver);
+    Post.observe(PostObserver);
+    Order.observe(OrderObserver);
+    
+    // Register cross-cutting observers
+    User.observe(AuditObserver);
+    Post.observe(AuditObserver);
+    Order.observe(AuditObserver);
+    
+    console.log('All observers registered successfully');
+  }
+}
+
+module.exports = ObserverServiceProvider;
+
+// In your app.js or index.js
+const ObserverServiceProvider = require('./providers/ObserverServiceProvider');
+ObserverServiceProvider.register();
+```
+
+## Advanced Observer Patterns
+
+### Conditional Observer Logic
+
+```javascript
+// observers/PostObserver.js
+class PostObserver {
+  async updating(post) {
+    // Only run logic if status changed
+    if (post.isDirty('status')) {
+      await this.handleStatusChange(post);
+    }
+    
+    // Only run if content changed
+    if (post.isDirty('content')) {
+      post.reading_time = this.calculateReadingTime(post.content);
+      post.word_count = this.countWords(post.content);
+    }
+    
+    // Only run if title changed
+    if (post.isDirty('title') && !post.slug) {
+      post.slug = this.generateSlug(post.title);
+    }
+  }
+  
+  async updated(post) {
+    // Handle different types of updates
+    const changes = post.getChanges();
+    
+    if (changes.status) {
+      await this.handleStatusUpdate(post, changes.status);
+    }
+    
+    if (changes.featured_image) {
+      await this.processImage(post.featured_image);
+    }
+    
+    if (changes.category_id) {
+      await this.updateCategoryStats(changes.category_id);
+    }
+  }
+  
+  async handleStatusChange(post) {
+    switch (post.status) {
+      case 'published':
+        post.published_at = new Date();
+        break;
+      case 'draft':
+        post.published_at = null;
+        break;
+      case 'archived':
+        post.archived_at = new Date();
+        break;
+    }
+  }
+  
+  async handleStatusUpdate(post, newStatus) {
+    switch (newStatus) {
+      case 'published':
+        await this.notifySubscribers(post);
+        await this.addToSearchIndex(post);
+        break;
+      case 'unpublished':
+        await this.removeFromSearchIndex(post);
+        break;
+    }
+  }
+  
+  calculateReadingTime(content) {
+    const wordsPerMinute = 200;
+    const wordCount = this.countWords(content);
+    return Math.ceil(wordCount / wordsPerMinute);
+  }
+  
+  countWords(content) {
+    return content.trim().split(/\s+/).length;
+  }
+  
+  generateSlug(title) {
+    return title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
+}
+```
+
+### Cross-Model Observer
+
+```javascript
+// observers/AuditObserver.js
+class AuditObserver {
+  async created(model) {
+    await this.logActivity({
+      model_type: model.constructor.name,
+      model_id: model.id,
+      action: 'created',
+      data: this.sanitizeData(model.toJSON()),
+      user_id: this.getCurrentUserId(),
+    });
+  }
+  
+  async updated(model) {
+    const changes = model.getChanges();
+    
+    await this.logActivity({
+      model_type: model.constructor.name,
+      model_id: model.id,
+      action: 'updated',
+      changes: this.sanitizeData(changes),
+      original: this.sanitizeData(model.getOriginal()),
+      user_id: this.getCurrentUserId(),
+    });
+  }
+  
+  async deleted(model) {
+    await this.logActivity({
+      model_type: model.constructor.name,
+      model_id: model.id,
+      action: 'deleted',
+      data: this.sanitizeData(model.toJSON()),
+      user_id: this.getCurrentUserId(),
+    });
+  }
+  
+  async logActivity(data) {
+    const AuditLog = require('../models/AuditLog');
+    
+    await AuditLog.create({
+      ...data,
+      ip_address: this.getCurrentIpAddress(),
+      user_agent: this.getCurrentUserAgent(),
+      timestamp: new Date(),
+    });
+  }
+  
+  sanitizeData(data) {
+    // Remove sensitive fields
+    const sensitiveFields = ['password', 'token', 'secret', 'key'];
+    const sanitized = { ...data };
+    
+    sensitiveFields.forEach(field => {
+      if (sanitized[field]) {
+        sanitized[field] = '[REDACTED]';
+      }
+    });
+    
+    return sanitized;
+  }
+  
+  getCurrentUserId() {
+    // Get from request context or auth service
+    const authService = require('../services/AuthService');
+    return authService.getCurrentUserId();
+  }
+  
+  getCurrentIpAddress() {
+    const requestContext = require('../services/RequestContext');
+    return requestContext.getIpAddress();
+  }
+  
+  getCurrentUserAgent() {
+    const requestContext = require('../services/RequestContext');
+    return requestContext.getUserAgent();
+  }
+}
+
+module.exports = AuditObserver;
+```
+
+### Event-Specific Observers
+
+```javascript
+// observers/EmailObserver.js
+class EmailObserver {
+  async created(model) {
+    // Handle different model types
+    switch (model.constructor.name) {
+      case 'User':
+        await this.sendWelcomeEmail(model);
+        break;
+      case 'Order':
+        await this.sendOrderConfirmation(model);
+        break;
+      case 'Post':
+        await this.notifyFollowers(model);
+        break;
+    }
+  }
+  
+  async updated(model) {
+    switch (model.constructor.name) {
+      case 'Order':
+        if (model.wasChanged('status')) {
+          await this.sendOrderStatusUpdate(model);
+        }
+        break;
+      case 'User':
+        if (model.wasChanged('email')) {
+          await this.sendEmailChangeNotification(model);
+        }
+        break;
+    }
+  }
+  
+  async sendWelcomeEmail(user) {
+    const emailService = require('../services/EmailService');
+    
+    await emailService.send({
+      to: user.email,
+      subject: 'Welcome to our platform!',
+      template: 'welcome',
+      data: {
+        name: user.name,
+        login_url: process.env.APP_URL + '/login',
+      },
+    });
+  }
+  
+  async sendOrderConfirmation(order) {
+    await order.load('user', 'items.product');
+    
+    const emailService = require('../services/EmailService');
+    
+    await emailService.send({
+      to: order.user.email,
+      subject: `Order Confirmation #${order.id}`,
+      template: 'order-confirmation',
+      data: {
+        order: order.toJSON(),
+        customer_name: order.user.name,
+      },
+    });
+  }
+  
+  async sendOrderStatusUpdate(order) {
+    await order.load('user');
+    
+    const emailService = require('../services/EmailService');
+    
+    await emailService.send({
+      to: order.user.email,
+      subject: `Order #${order.id} Status Update`,
+      template: 'order-status-update',
+      data: {
+        order_id: order.id,
+        status: order.status,
+        customer_name: order.user.name,
+      },
+    });
+  }
+}
+```
+
+## Observer Dependencies and Services
+
+### Dependency Injection
+
+```javascript
+// observers/UserObserver.js
+class UserObserver {
+  constructor(emailService, cacheService, auditService) {
+    this.emailService = emailService;
+    this.cacheService = cacheService;
+    this.auditService = auditService;
+  }
+  
+  async created(user) {
+    await this.emailService.sendWelcome(user);
+    await this.auditService.log('user_created', user);
+  }
+  
+  async updated(user) {
+    await this.cacheService.forget(`user:${user.id}`);
+    await this.auditService.log('user_updated', user);
+  }
+}
+
+// Register with dependencies
+const EmailService = require('../services/EmailService');
+const CacheService = require('../services/CacheService');
+const AuditService = require('../services/AuditService');
+
+const userObserver = new UserObserver(
+  new EmailService(),
+  new CacheService(),
+  new AuditService()
+);
+
+User.observe(userObserver);
+```
+
+### Service Locator Pattern
+
+```javascript
+// services/ServiceContainer.js
+class ServiceContainer {
+  static services = new Map();
+  
+  static register(name, service) {
+    this.services.set(name, service);
+  }
+  
+  static get(name) {
+    if (!this.services.has(name)) {
+      throw new Error(`Service ${name} not found`);
+    }
+    return this.services.get(name);
+  }
+}
+
+// Register services
+ServiceContainer.register('email', new EmailService());
+ServiceContainer.register('cache', new CacheService());
+ServiceContainer.register('audit', new AuditService());
+
+// observers/UserObserver.js
+class UserObserver {
+  get emailService() {
+    return ServiceContainer.get('email');
+  }
+  
+  get cacheService() {
+    return ServiceContainer.get('cache');
+  }
+  
+  get auditService() {
+    return ServiceContainer.get('audit');
+  }
+  
+  async created(user) {
+    await this.emailService.sendWelcome(user);
+    await this.auditService.log('user_created', user);
+  }
+  
+  async updated(user) {
+    await this.cacheService.forget(`user:${user.id}`);
+    await this.auditService.log('user_updated', user);
+  }
+}
+```
+
+## Testing Observers
+
+### Unit Testing Observers
+
+```javascript
+// test/observers/UserObserver.test.js
+const UserObserver = require('../../observers/UserObserver');
+const User = require('../../models/User');
+
+// Mock services
+const mockEmailService = {
+  sendWelcome: jest.fn(),
+};
+
+const mockCacheService = {
+  forget: jest.fn(),
+};
+
+describe('UserObserver', () => {
+  let observer;
+  let user;
+  
+  beforeEach(() => {
+    observer = new UserObserver(mockEmailService, mockCacheService);
+    user = new User({
+      id: 1,
+      name: 'Test User',
+      email: 'test@example.com',
+    });
+    
+    // Clear mocks
+    jest.clearAllMocks();
+  });
+  
+  describe('created', () => {
+    test('sends welcome email', async () => {
+      await observer.created(user);
+      
+      expect(mockEmailService.sendWelcome).toHaveBeenCalledWith(user);
+    });
+  });
+  
+  describe('updated', () => {
+    test('clears user cache', async () => {
+      await observer.updated(user);
+      
+      expect(mockCacheService.forget).toHaveBeenCalledWith('user:1');
+    });
+  });
+  
+  describe('creating', () => {
+    test('normalizes email', async () => {
+      user.email = '  TEST@EXAMPLE.COM  ';
+      
+      await observer.creating(user);
+      
+      expect(user.email).toBe('test@example.com');
+    });
+    
+    test('generates UUID if not provided', async () => {
+      expect(user.uuid).toBeUndefined();
+      
+      await observer.creating(user);
+      
+      expect(user.uuid).toBeDefined();
+      expect(typeof user.uuid).toBe('string');
+    });
+  });
+});
+```
+
+### Integration Testing
+
+```javascript
+// test/integration/UserObserver.integration.test.js
+const User = require('../../models/User');
+const UserObserver = require('../../observers/UserObserver');
+
+describe('UserObserver Integration', () => {
+  beforeEach(async () => {
+    // Register observer
+    User.observe(UserObserver);
+    
+    // Clear database
+    await User.query().delete();
+  });
+  
+  test('observer fires on user creation', async () => {
+    const emailSpy = jest.spyOn(require('../../services/EmailService'), 'sendWelcome');
+    
+    const user = await User.create({
+      name: 'Test User',
+      email: '  TEST@EXAMPLE.COM  ',
+    });
+    
+    // Check that observer normalized email
+    expect(user.email).toBe('test@example.com');
+    
+    // Check that observer generated UUID
+    expect(user.uuid).toBeDefined();
+    
+    // Check that observer sent welcome email
+    expect(emailSpy).toHaveBeenCalledWith(user);
+    
+    emailSpy.mockRestore();
+  });
+  
+  test('observer fires on user update', async () => {
+    const cacheSpy = jest.spyOn(require('../../services/CacheService'), 'forget');
+    
+    const user = await User.create({
+      name: 'Test User',
+      email: 'test@example.com',
+    });
+    
+    await user.update({ name: 'Updated Name' });
+    
+    expect(cacheSpy).toHaveBeenCalledWith(`user:${user.id}`);
+    
+    cacheSpy.mockRestore();
+  });
+});
+```
+
+### Observer Test Helpers
+
+```javascript
+// test/helpers/ObserverTestHelper.js
+class ObserverTestHelper {
+  static observerCalls = [];
+  
+  static mockObserver(modelClass, methods = []) {
+    const originalObservers = modelClass._observers || [];
+    
+    const mockObserver = {};
+    methods.forEach(method => {
+      mockObserver[method] = jest.fn(async (model) => {
+        this.observerCalls.push({
+          method,
+          model: model.constructor.name,
+          id: model.id,
+          data: model.toJSON(),
+        });
+      });
+    });
+    
+    modelClass.observe(mockObserver);
+    
+    return {
+      restore: () => {
+        modelClass._observers = originalObservers;
+      },
+      getCalls: (method = null) => {
+        return this.observerCalls.filter(call => 
+          !method || call.method === method
+        );
+      },
+      clearCalls: () => {
+        this.observerCalls = [];
+      },
+    };
+  }
+}
+
+// Usage in tests
+describe('User Model', () => {
+  let observerMock;
+  
+  beforeEach(() => {
+    observerMock = ObserverTestHelper.mockObserver(User, ['created', 'updated']);
+    observerMock.clearCalls();
+  });
+  
+  afterEach(() => {
+    observerMock.restore();
+  });
+  
+  test('fires created observer', async () => {
+    await User.create({ name: 'Test', email: 'test@example.com' });
+    
+    const calls = observerMock.getCalls('created');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].data.name).toBe('Test');
+  });
+});
+```
+
+## Observer Best Practices
+
+### 1. Single Responsibility
+
+```javascript
+// ✅ Good - focused on email functionality
+class EmailObserver {
+  async created(user) {
+    await this.sendWelcomeEmail(user);
+  }
+  
+  async updated(user) {
+    if (user.wasChanged('email')) {
+      await this.sendEmailChangeNotification(user);
+    }
+  }
+}
+
+// ❌ Bad - doing too many things
+class UserObserver {
+  async created(user) {
+    await this.sendWelcomeEmail(user);
+    await this.createProfile(user);
+    await this.updateAnalytics(user);
+    await this.syncToExternalService(user);
+    await this.generateReport(user);
+  }
+}
+```
+
+### 2. Error Handling
+
+```javascript
+// ✅ Good - graceful error handling
+class EmailObserver {
+  async created(user) {
+    try {
+      await this.sendWelcomeEmail(user);
+    } catch (error) {
+      console.error('Failed to send welcome email:', error);
+      // Don't throw - user creation should succeed
+    }
+  }
+}
+```
+
+### 3. Async Operations
+
+```javascript
+// ✅ Good - proper async handling
+class UserObserver {
+  async created(user) {
+    // Critical operations (block if they fail)
+    await this.createUserProfile(user);
+    
+    // Non-critical operations (run in background)
+    setImmediate(async () => {
+      try {
+        await Promise.all([
+          this.sendWelcomeEmail(user),
+          this.updateAnalytics(user),
+          this.syncToExternalService(user),
+        ]);
+      } catch (error) {
+        console.error('Background tasks failed:', error);
+      }
+    });
+  }
+}
+```
+
+### 4. Environment Awareness
+
+```javascript
+class EmailObserver {
+  async created(user) {
+    // Only send emails in production
+    if (process.env.NODE_ENV === 'production') {
+      await this.sendWelcomeEmail(user);
+    } else {
+      console.log(`Would send welcome email to ${user.email}`);
+    }
+  }
+}
+```
+
+### 5. Documentation
+
+```javascript
+/**
+ * UserObserver
+ * 
+ * Handles user lifecycle events:
+ * - creating: Normalizes data, sets defaults
+ * - created: Sends welcome email, creates profile
+ * - updating: Validates changes, tracks modifications
+ * - updated: Clears cache, syncs external systems
+ * - deleting: Cleans up related data
+ * - deleted: Removes files, sends notifications
+ */
+class UserObserver {
+  // ... implementation
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Custom Casting"
+    icon="wand-magic-sparkles"
+    href="/advanced/casting"
+  >
+    Transform data with custom cast classes
+  </Card>
+  <Card
+    title="Query Scopes"
+    icon="filter"
+    href="/advanced/scopes"
+  >
+    Create reusable query constraints
+  </Card>
+</CardGroup>
