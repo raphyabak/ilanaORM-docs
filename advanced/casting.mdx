@@ -8,6 +8,10 @@ description: 'Transform data with powerful custom cast classes'
 Custom casting allows you to transform data when it's retrieved from or stored to the database. While IlanaORM provides built-in casts like `'date'`, `'boolean'`, and `'json'`, custom casts let you create your own transformation logic.
 
 <Info>
+**Cast classes are called automatically.** Any object with `get(value)` / `set(value)` methods placed in a model's `casts` map will have `set()` called on write and `get()` called on read — exactly like string cast types. No manual invocation needed.
+</Info>
+
+<Info>
 **Real-world analogy:** Custom casting is like having a translator who speaks multiple languages. When data comes from the database (foreign language), the translator converts it to something your application understands (native language). When saving data, the translator converts it back to the database format.
 </Info>
 
@@ -110,8 +114,12 @@ console.log(product.price); // 19.99 (converted back from 1999)
 
 ### Encrypted Cast
 
+<Warning>
+The built-in `EncryptedCast` from `ilana-orm/orm/CustomCasts` uses **base64 encoding only** — not real encryption. For production use, implement your own cast with a proper encryption library as shown below.
+</Warning>
+
 ```javascript
-// casts/EncryptedCast.js
+// casts/EncryptedCast.js — real AES-256-GCM encryption
 const crypto = require('crypto');
 
 class EncryptedCast {

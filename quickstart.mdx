@@ -5,7 +5,7 @@ description: 'Get started with IlanaORM in under 5 minutes'
 
 ## Installation
 
-IlanaORM comes with everything you need - no additional database drivers required!
+Install IlanaORM:
 
 <CodeGroup>
 
@@ -22,6 +22,30 @@ pnpm add ilana-orm
 ```
 
 </CodeGroup>
+
+### Database Drivers
+
+Install only the database driver you need:
+
+<CodeGroup>
+
+```bash PostgreSQL
+npm install pg
+```
+
+```bash MySQL
+npm install mysql2
+```
+
+```bash SQLite
+npm install sqlite3
+```
+
+</CodeGroup>
+
+<Note>
+**Why separate?** Database drivers are optional dependencies to reduce package size and security surface. Install only what you need for your project.
+</Note>
 
 ## Setup Your Project
 

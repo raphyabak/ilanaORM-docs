@@ -7,6 +7,15 @@ description: "Manage multiple database connections and configurations"
 
 Database connections are how your application communicates with databases. IlanaORM can manage multiple connections simultaneously, allowing you to work with different databases for different purposes.
 
+<Note>
+**Database Drivers:** IlanaORM requires you to install database drivers separately:
+- PostgreSQL: `npm install pg`
+- MySQL: `npm install mysql2`
+- SQLite: `npm install sqlite3`
+
+This keeps the package lightweight and secure by only including what you need.
+</Note>
+
 <Info>
   **Real-world analogy:** Think of database connections like phone lines to
   different offices. You might have one line to your main office (primary

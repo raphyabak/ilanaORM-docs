@@ -201,7 +201,39 @@ post.tags.forEach(tag => {
 
 ## Polymorphic Relationships
 
-A polymorphic relationship allows one model to belong to multiple other model types. Think of it like comments that can be added to both blog posts and videos - the comment doesn't care what type of content it's attached to, it just knows it's "commentable".
+A polymorphic relationship allows one model to belong to multiple other model types. Every model involved must call `static { this.register(); }` so the ORM can resolve type strings at runtime.
+
+### morphOne — One-to-one polymorphic
+
+```javascript
+// images table has: id, url, imageable_type, imageable_id
+class Image extends Model {
+  imageable() {
+    return this.morphTo('imageable'); // reads imageable_type + imageable_id
+  }
+  static { this.register(); }
+}
+
+class Post extends Model {
+  image() {
+    return this.morphOne('Image', 'imageable'); // stores imageable_type='Post'
+  }
+  static { this.register(); }
+}
+
+class User extends Model {
+  avatar() {
+    return this.morphOne('Image', 'imageable'); // stores imageable_type='User'
+  }
+  static { this.register(); }
+}
+
+// Usage
+const post = await Post.with('image').find(1);
+console.log(post.image.url);
+```
+
+### morphMany — One-to-many polymorphic
 
 ### Example: Comments on Posts and Videos
 
@@ -450,22 +482,27 @@ await user.posts().save(existingPost);
 const post = await Post.find(1);
 
 // Attach tags
-await post.tags().attach([1, 2, 3]);
+await post.tags().attach(tagId);
+await post.tags().attach(tagId, { created_by: 'admin' }); // with pivot attributes
 
-// Attach with pivot data
-await post.tags().attach({
-  1: { created_by: 'admin' },
-  2: { created_by: 'editor' }
-});
+// Detach
+await post.tags().detach(tagId);
+await post.tags().detach(); // detach all
 
-// Detach tags
-await post.tags().detach([1, 2]);
-
-// Sync tags (replace all)
+// Sync — detach all current, then attach these
 await post.tags().sync([1, 3, 5]);
 
-// Toggle tags
+// Sync with pivot attributes (object form: { id: pivotAttrs })
+await post.tags().sync({
+  1: { created_by: 'admin' },
+  3: { created_by: 'editor' },
+});
+
+// Toggle — attach if not present, detach if already attached
 await post.tags().toggle([1, 2, 3]);
+
+// Update an existing pivot row without detach/reattach
+await post.tags().updateExistingPivot(tagId, { created_by: 'moderator' });
 ```
 
 ### Querying Relationships

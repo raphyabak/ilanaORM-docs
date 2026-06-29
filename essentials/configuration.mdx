@@ -7,6 +7,13 @@ description: 'Configure IlanaORM for different environments and databases'
 
 The `ilana.config.js` file is the heart of your IlanaORM setup. Think of it as the control panel for your database connections.
 
+<Note>
+**Database Drivers:** IlanaORM requires you to install database drivers separately. Install only what you need:
+- PostgreSQL: `npm install pg`
+- MySQL: `npm install mysql2`
+- SQLite: `npm install sqlite3`
+</Note>
+
 ```javascript ilana.config.js
 module.exports = {
   // Which database connection to use by default
