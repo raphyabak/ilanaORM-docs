@@ -7,12 +7,16 @@ description: 'Side-by-side comparison of Prisma and IlanaORM patterns'
 
 | | Prisma | IlanaORM |
 |---|---|---|
-| Schema | Separate `.prisma` file | JavaScript class properties |
-| Models | Auto-generated client | Hand-written classes |
-| Migrations | `prisma migrate dev` | `npx ilana migrate` |
-| Relations | Defined in schema | Methods on the class |
-| Type safety | Generated types | Hand-authored `.d.ts` |
-| Soft deletes | Manual middleware | `static softDeletes = true` |
+| Schema | Separate `.prisma` file — extra language to learn | Plain JavaScript class properties |
+| Models | Auto-generated client — regenerate after every change | Write once, full control |
+| Migrations | `prisma migrate dev` — codegen can drift from actual DB | `npx ilana migrate` — code-first, predictable |
+| Relations | Defined in schema file, away from your code | Methods on the class, right where you use them |
+| Type safety | Generated types (requires build step) | Auto-generated from migrations via `npx ilana types` — no build step |
+| Soft deletes | Manual middleware or extension | One line: `static softDeletes = true` |
+
+<Info>
+**Type generation:** IlanaORM generates TypeScript types automatically from your migration files. Run `npx ilana types` (or just run `npx ilana migrate` — it runs automatically). Types are written to `types/` with a full `Attributes` interface and class declaration per model. No build step, no schema file, no regeneration loop.
+</Info>
 
 ## Model Definition
 
