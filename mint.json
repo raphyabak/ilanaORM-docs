@@ -58,7 +58,8 @@
         "essentials/configuration",
         "essentials/models",
         "essentials/queries",
-        "essentials/relationships"
+        "essentials/relationships",
+        "essentials/typescript"
       ]
     },
     {
