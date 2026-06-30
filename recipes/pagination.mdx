@@ -1,0 +1,127 @@
+---
+title: 'Pagination'
+description: 'Compare paginate, simplePaginate, and cursorPaginate and know when to use each'
+---
+
+IlanaORM ships three pagination strategies. Pick the right one for your use case.
+
+## `paginate` — Full Pagination
+
+Returns a total count and page metadata. Use when you need page numbers or a "Page 3 of 47" UI.
+
+```javascript
+const result = await Post.query()
+  .where('published', true)
+  .orderBy('created_at', 'desc')
+  .paginate(page, 10);
+```
+
+**Response shape:**
+
+```json
+{
+  "data": [...],
+  "total": 470,
+  "perPage": 10,
+  "currentPage": 3,
+  "lastPage": 47,
+  "from": 21,
+  "to": 30,
+  "nextPage": 4,
+}
+```
+
+**When to use:** Admin dashboards, search results, anywhere the user needs to jump to a specific page.
+
+**Trade-off:** Runs a `COUNT(*)` query on every request — can be slow on large tables.
+
+---
+
+## `simplePaginate` — Next/Prev Only
+
+No total count. Just tells you whether there's a next page. Use for "Load more" or "Next / Previous" navigation.
+
+```javascript
+const result = await Post.query()
+  .orderBy('created_at', 'desc')
+  .simplePaginate(page, 10);
+```
+
+**Response shape:**
+
+```json
+{
+  "data": [...],
+  "hasMore": true
+}
+```
+
+**When to use:** Mobile apps, infinite scroll, APIs where total count isn't needed.
+
+**Trade-off:** Can't tell the user "Page 3 of 47" — only "there are more results."
+
+---
+
+## `cursorPaginate` — Cursor-Based Pagination
+
+Paginates using a cursor value (usually a column like `id` or `created_at`) instead of page offsets. Consistent even when rows are inserted or deleted between requests.
+
+```javascript
+const result = await Post.query()
+  .orderBy('id', 'asc')
+  .cursorPaginate(10, req.query.cursor, 'id', 'asc');
+```
+
+**Response shape:**
+
+```json
+{
+  "data": [...],
+  "nextCursor": "120",
+  "prevCursor": "101",
+  "hasNextPage": true,
+  "hasPrevPage": true,
+  "perPage": 10,
+  "path": ""
+}
+```
+
+Pass the cursor on the next request:
+
+```javascript
+// Client sends: GET /posts?cursor=120
+const result = await Post.query()
+  .cursorPaginate(10, req.query.cursor ?? null, 'id', 'asc');
+```
+
+**When to use:** Real-time feeds, large datasets, APIs where rows can be inserted mid-session.
+
+**Trade-off:** Can't jump to page 47 — only forward/backward.
+
+---
+
+## Comparison
+
+| | `paginate` | `simplePaginate` | `cursorPaginate` |
+|---|---|---|---|
+| Total count | Yes | No | No |
+| Jump to page | Yes | No | No |
+| Stable with inserts | No | No | Yes |
+| Extra COUNT query | Yes | No | No |
+| Best for | Dashboards | Load more | Feeds, APIs |
+
+---
+
+## With Filters and Scopes
+
+All three methods work with any query:
+
+```javascript
+const result = await Post.query()
+  .where('published', true)
+  .with('user')
+  .withCount('comments')
+  .when(req.query.search, (q) => q.where('title', 'like', `%${req.query.search}%`))
+  .orderBy('created_at', 'desc')
+  .paginate(req.query.page ?? 1, 15);
+```

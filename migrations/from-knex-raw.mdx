@@ -1,0 +1,216 @@
+---
+title: 'Migrating from Raw Knex'
+description: 'Upgrade from raw Knex queries to IlanaORM models without rewriting your database layer'
+---
+
+## Why Upgrade?
+
+Raw Knex is great for flexibility, but as your app grows you end up writing the same boilerplate everywhere: mapping rows to objects, managing relationships, handling timestamps, and duplicating query logic. IlanaORM is built on top of Knex — so it keeps all the power while eliminating the repetition.
+
+<Info>
+IlanaORM is 100% compatible with raw Knex. You can migrate incrementally — one model at a time.
+</Info>
+
+## Basic Queries
+
+<CodeGroup>
+
+```javascript Raw Knex
+const users = await knex('users').select('*');
+
+const user = await knex('users').where('id', 1).first();
+
+const admins = await knex('users')
+  .where('role', 'admin')
+  .orderBy('created_at', 'desc')
+  .limit(10);
+```
+
+```javascript IlanaORM
+const users = await User.all();
+
+const user = await User.find(1);
+
+const admins = await User.query()
+  .where('role', 'admin')
+  .orderBy('created_at', 'desc')
+  .limit(10)
+  .get();
+```
+
+</CodeGroup>
+
+## Creating Records
+
+<CodeGroup>
+
+```javascript Raw Knex
+const [id] = await knex('users').insert({
+  name: 'Alice',
+  email: 'alice@example.com',
+  created_at: new Date(),
+  updated_at: new Date(),
+});
+const user = await knex('users').where('id', id).first();
+```
+
+```javascript IlanaORM
+// Timestamps set automatically
+const user = await User.create({
+  name: 'Alice',
+  email: 'alice@example.com',
+});
+```
+
+</CodeGroup>
+
+## Updating Records
+
+<CodeGroup>
+
+```javascript Raw Knex
+await knex('users')
+  .where('id', 1)
+  .update({ name: 'Alicia', updated_at: new Date() });
+```
+
+```javascript IlanaORM
+const user = await User.find(1);
+await user.update({ name: 'Alicia' }); // updated_at set automatically
+```
+
+</CodeGroup>
+
+## Soft Deletes
+
+<CodeGroup>
+
+```javascript Raw Knex
+// Soft delete
+await knex('posts').where('id', 1).update({ deleted_at: new Date() });
+
+// Query excluding deleted
+const posts = await knex('posts').whereNull('deleted_at');
+
+// Restore
+await knex('posts').where('id', 1).update({ deleted_at: null });
+```
+
+```javascript IlanaORM
+// Soft delete
+const post = await Post.find(1);
+await post.delete();
+
+// Query excluding deleted — automatic
+const posts = await Post.all();
+
+// Restore
+await post.restore();
+```
+
+</CodeGroup>
+
+## Relationships
+
+<CodeGroup>
+
+```javascript Raw Knex
+// Manual join
+const usersWithPosts = await knex('users')
+  .leftJoin('posts', 'users.id', 'posts.user_id')
+  .select('users.*', knex.raw('COUNT(posts.id) as post_count'))
+  .groupBy('users.id');
+
+// Separate query + manual mapping
+const user = await knex('users').where('id', 1).first();
+const posts = await knex('posts').where('user_id', user.id);
+user.posts = posts;
+```
+
+```javascript IlanaORM
+// Eager load — no manual mapping needed
+const user = await User.query().with('posts').find(1);
+user.posts; // already populated
+
+// Count without loading
+const users = await User.query().withCount('posts').get();
+users[0].posts_count;
+```
+
+</CodeGroup>
+
+## Transactions
+
+<CodeGroup>
+
+```javascript Raw Knex
+const trx = await knex.transaction();
+try {
+  const [userId] = await trx('users').insert({ name: 'Alice' });
+  await trx('posts').insert({ user_id: userId, title: 'Hello' });
+  await trx.commit();
+} catch (err) {
+  await trx.rollback();
+  throw err;
+}
+```
+
+```javascript IlanaORM
+await DB.transaction(async (trx) => {
+  const user = await User.on(trx).create({ name: 'Alice' });
+  await Post.on(trx).create({ user_id: user.id, title: 'Hello' });
+  // auto-commits; auto-rolls back on throw
+});
+```
+
+</CodeGroup>
+
+## Pagination
+
+<CodeGroup>
+
+```javascript Raw Knex
+const page = 1;
+const perPage = 10;
+const offset = (page - 1) * perPage;
+
+const rows = await knex('posts').limit(perPage).offset(offset);
+const [{ count }] = await knex('posts').count('* as count');
+
+const result = {
+  data: rows,
+  total: parseInt(count),
+  currentPage: page,
+  lastPage: Math.ceil(count / perPage),
+};
+```
+
+```javascript IlanaORM
+const result = await Post.query().paginate(page, 10);
+// result.data, result.total, result.currentPage, result.lastPage
+```
+
+</CodeGroup>
+
+## Accessing Raw Knex When You Need It
+
+IlanaORM doesn't lock you out of Knex. Escape hatch when you need it:
+
+```javascript
+// Get raw Knex query builder from a QB instance
+const knexQuery = Post.query().where('published', true).toKnex();
+
+// Run completely raw SQL
+import { Database } from 'ilana-orm/database/connection.js';
+const db = Database.connection('default');
+const rows = await db.raw('SELECT * FROM posts WHERE MATCH(body) AGAINST(?)', ['search term']);
+```
+
+## Migration Path
+
+1. Create a `Model` class for each table you want to migrate
+2. Replace `knex('table').select(...)` calls with `Model.query()...`
+3. Replace manual timestamp management with `static timestamps = true` (default)
+4. Replace manual soft-delete filters with `static softDeletes = true`
+5. Replace manual relation joining with `with(...)` eager loading
+6. Keep raw Knex for complex reporting queries — use `Model.query().toKnex()` to mix

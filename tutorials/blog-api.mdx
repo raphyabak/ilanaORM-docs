@@ -1,0 +1,337 @@
+---
+title: 'Build a Blog API'
+description: 'Build a complete blog API with users, posts, and comments using IlanaORM'
+---
+
+## What You'll Build
+
+By the end of this tutorial you'll have a working blog API with:
+
+- Users who can write posts
+- Posts that belong to users and have many comments
+- Comments that belong to both a post and a user
+- Pagination, filtering, and soft deletes
+
+<Info>
+This tutorial assumes you've completed the [Quickstart](/quickstart) and have a database connection configured.
+</Info>
+
+## 1. Create the Migrations
+
+<Tip>
+  Already know your schema? Run `npx ilana make:model User --migration` (and repeat for Post and Comment) to scaffold both the model and migration at once, then skip straight to [Step 2](#2-create-the-models).
+</Tip>
+
+```bash
+npx ilana make:migration create_users_table
+npx ilana make:migration create_posts_table
+npx ilana make:migration create_comments_table
+```
+
+**`create_users_table`**
+
+```javascript
+export async function up(schema) {
+  await schema.createTable('users', (table) => {
+    table.increments('id');
+    table.string('name').notNullable();
+    table.string('email').notNullable().unique();
+    table.string('password').notNullable();
+    table.enum('role', ['user', 'admin']).defaultTo('user');
+    table.timestamps(true, true);
+  });
+}
+
+export async function down(schema) {
+  await schema.dropTable('users');
+}
+```
+
+**`create_posts_table`**
+
+```javascript
+export async function up(schema) {
+  await schema.createTable('posts', (table) => {
+    table.increments('id');
+    table.integer('user_id').unsigned().references('id').inTable('users').onDelete('CASCADE');
+    table.string('title').notNullable();
+    table.string('slug').notNullable().unique();
+    table.text('body').notNullable();
+    table.boolean('published').defaultTo(false);
+    table.timestamp('published_at').nullable();
+    table.timestamps(true, true);
+    table.timestamp('deleted_at').nullable();
+  });
+}
+
+export async function down(schema) {
+  await schema.dropTable('posts');
+}
+```
+
+**`create_comments_table`**
+
+```javascript
+export async function up(schema) {
+  await schema.createTable('comments', (table) => {
+    table.increments('id');
+    table.integer('post_id').unsigned().references('id').inTable('posts').onDelete('CASCADE');
+    table.integer('user_id').unsigned().references('id').inTable('users').onDelete('CASCADE');
+    table.text('body').notNullable();
+    table.timestamps(true, true);
+  });
+}
+
+export async function down(schema) {
+  await schema.dropTable('comments');
+}
+```
+
+Run the migrations:
+
+```bash
+npx ilana migrate
+```
+
+## 2. Create the Models
+
+```bash
+npx ilana make:model User
+npx ilana make:model Post
+npx ilana make:model Comment
+```
+
+**`models/User.js`**
+
+```javascript
+import Model from 'ilana-orm/orm/Model.js';
+
+export default class User extends Model {
+  static table = 'users';
+  static fillable = ['name', 'email', 'password', 'role'];
+  static hidden = ['password'];
+
+  static {
+    this.register();
+  }
+
+  // Mutator: hash password on set
+  setPasswordAttribute(value) {
+    return bcrypt.hashSync(value, 10);
+  }
+
+  // Relationships
+  posts() {
+    return this.hasMany('Post', 'user_id');
+  }
+
+  comments() {
+    return this.hasMany('Comment', 'user_id');
+  }
+}
+```
+
+**`models/Post.js`**
+
+```javascript
+import Model from 'ilana-orm/orm/Model.js';
+
+export default class Post extends Model {
+  static table = 'posts';
+  static softDeletes = true;
+  static fillable = ['user_id', 'title', 'slug', 'body', 'published', 'published_at'];
+
+  static {
+    this.register();
+  }
+
+  // Scopes
+  static scopePublished(query) {
+    return query.where('published', true).whereNotNull('published_at');
+  }
+
+  static scopeByUser(query, userId) {
+    return query.where('user_id', userId);
+  }
+
+  // Relationships
+  user() {
+    return this.belongsTo('User', 'user_id');
+  }
+
+  comments() {
+    return this.hasMany('Comment', 'post_id');
+  }
+}
+```
+
+**`models/Comment.js`**
+
+```javascript
+import Model from 'ilana-orm/orm/Model.js';
+
+export default class Comment extends Model {
+  static table = 'comments';
+  static fillable = ['post_id', 'user_id', 'body'];
+
+  static {
+    this.register();
+  }
+
+  post() {
+    return this.belongsTo('Post', 'post_id');
+  }
+
+  user() {
+    return this.belongsTo('User', 'user_id');
+  }
+}
+```
+
+## 3. Build the API Routes
+
+Here's a complete Express.js blog API using these models:
+
+### List Posts (paginated)
+
+```javascript
+// GET /posts?page=1&published=true&author=42
+app.get('/posts', async (req, res) => {
+  const { page = 1, published, author } = req.query;
+
+  const posts = await Post.query()
+    .with('user', 'comments')
+    .withCount('comments')
+    .when(published, (q) => q.published())
+    .when(author, (q) => q.byUser(author))
+    .orderBy('created_at', 'desc')
+    .paginate(page, 10);
+
+  res.json(posts);
+});
+```
+
+### Get a Single Post with Comments
+
+```javascript
+// GET /posts/:id
+app.get('/posts/:id', async (req, res) => {
+  const post = await Post.query()
+    .with('user', 'comments.user')
+    .find(req.params.id);
+
+  if (!post) return res.status(404).json({ message: 'Post not found' });
+
+  res.json(post);
+});
+```
+
+### Create a Post
+
+```javascript
+// POST /posts
+app.post('/posts', async (req, res) => {
+  const post = await Post.create({
+    user_id: req.user.id,
+    title: req.body.title,
+    slug: slugify(req.body.title),
+    body: req.body.body,
+  });
+
+  res.status(201).json(post);
+});
+```
+
+### Publish a Post
+
+```javascript
+// PATCH /posts/:id/publish
+app.patch('/posts/:id/publish', async (req, res) => {
+  const post = await Post.find(req.params.id);
+  if (!post) return res.status(404).json({ message: 'Post not found' });
+
+  await post.update({
+    published: true,
+    published_at: new Date(),
+  });
+
+  res.json(post);
+});
+```
+
+### Delete a Post (soft delete)
+
+```javascript
+// DELETE /posts/:id
+app.delete('/posts/:id', async (req, res) => {
+  const post = await Post.find(req.params.id);
+  if (!post) return res.status(404).json({ message: 'Post not found' });
+
+  await post.delete(); // soft deletes — sets deleted_at
+
+  res.json({ message: 'Post deleted' });
+});
+```
+
+### Restore a Deleted Post
+
+```javascript
+// PATCH /posts/:id/restore
+app.patch('/posts/:id/restore', async (req, res) => {
+  const post = await Post.withTrashed().find(req.params.id);
+  if (!post) return res.status(404).json({ message: 'Post not found' });
+
+  await post.restore();
+
+  res.json(post);
+});
+```
+
+### Add a Comment
+
+```javascript
+// POST /posts/:id/comments
+app.post('/posts/:id/comments', async (req, res) => {
+  const post = await Post.find(req.params.id);
+  if (!post) return res.status(404).json({ message: 'Post not found' });
+
+  const comment = await Comment.create({
+    post_id: post.id,
+    user_id: req.user.id,
+    body: req.body.body,
+  });
+
+  res.status(201).json(comment);
+});
+```
+
+## 4. Factories for Testing
+
+```javascript
+import { defineFactory } from 'ilana-orm/orm/Factory.js';
+import Post from './models/Post.js';
+
+export const PostFactory = defineFactory(Post, (faker) => ({
+  title: faker.lorem.sentence(),
+  slug: faker.lorem.slug(),
+  body: faker.lorem.paragraphs(3),
+  published: false,
+}))
+.state('published', (faker) => ({
+  published: true,
+  published_at: faker.date.past(),
+}));
+```
+
+Seed your database for development:
+
+```javascript
+// 10 published posts, each with 3 comments
+const posts = await PostFactory.state('published').times(10).create();
+```
+
+## What's Next
+
+- Add [global scopes](/advanced/scopes) to automatically filter posts by the current user
+- Use [observers](/advanced/observers) to generate slugs automatically on create
+- Add [casting](/advanced/casting) to serialize `published_at` as a formatted date

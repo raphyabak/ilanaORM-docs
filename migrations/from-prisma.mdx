@@ -1,0 +1,248 @@
+---
+title: 'Migrating from Prisma'
+description: 'Side-by-side comparison of Prisma and IlanaORM patterns'
+---
+
+## Key Differences
+
+| | Prisma | IlanaORM |
+|---|---|---|
+| Schema | Separate `.prisma` file | JavaScript class properties |
+| Models | Auto-generated client | Hand-written classes |
+| Migrations | `prisma migrate dev` | `npx ilana migrate` |
+| Relations | Defined in schema | Methods on the class |
+| Type safety | Generated types | Hand-authored `.d.ts` |
+| Soft deletes | Manual middleware | `static softDeletes = true` |
+
+## Model Definition
+
+<CodeGroup>
+
+```prisma Prisma (schema.prisma)
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  posts     Post[]
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+```
+
+```javascript IlanaORM (models/User.js)
+import Model from 'ilana-orm/orm/Model.js';
+
+export default class User extends Model {
+  static table = 'users';
+  static fillable = ['name', 'email', 'role'];
+
+  static { this.register(); }
+
+  posts() {
+    return this.hasMany('Post', 'user_id');
+  }
+}
+```
+
+</CodeGroup>
+
+## Querying
+
+<CodeGroup>
+
+```javascript Prisma
+// Find all
+await prisma.user.findMany();
+
+// Find unique
+await prisma.user.findUnique({ where: { id: 1 } });
+
+// Find with filter
+await prisma.user.findMany({
+  where: { role: 'ADMIN' }
+});
+
+// Find with relation
+await prisma.user.findUnique({
+  where: { id: 1 },
+  include: { posts: true }
+});
+```
+
+```javascript IlanaORM
+// Find all
+await User.all();
+
+// Find unique
+await User.find(1);
+
+// Find with filter
+await User.query().where('role', 'admin').get();
+
+// Find with relation
+await User.query().with('posts').find(1);
+```
+
+</CodeGroup>
+
+## Creating Records
+
+<CodeGroup>
+
+```javascript Prisma
+const user = await prisma.user.create({
+  data: { name: 'Alice', email: 'alice@example.com' }
+});
+```
+
+```javascript IlanaORM
+const user = await User.create({
+  name: 'Alice',
+  email: 'alice@example.com'
+});
+```
+
+</CodeGroup>
+
+## Updating Records
+
+<CodeGroup>
+
+```javascript Prisma
+// Update one
+await prisma.user.update({
+  where: { id: 1 },
+  data: { name: 'Alicia' }
+});
+
+// Update many
+await prisma.user.updateMany({
+  where: { role: 'USER' },
+  data: { role: 'MEMBER' }
+});
+```
+
+```javascript IlanaORM
+// Update one
+const user = await User.find(1);
+await user.update({ name: 'Alicia' });
+
+// Update many
+await User.query().where('role', 'USER').update({ role: 'MEMBER' });
+```
+
+</CodeGroup>
+
+## Deleting Records
+
+<CodeGroup>
+
+```javascript Prisma
+await prisma.user.delete({ where: { id: 1 } });
+
+// Soft delete (manual middleware in Prisma)
+await prisma.user.update({
+  where: { id: 1 },
+  data: { deletedAt: new Date() }
+});
+```
+
+```javascript IlanaORM
+// Hard delete
+const user = await User.find(1);
+await user.forceDelete();
+
+// Soft delete (built-in — just enable it)
+await user.delete(); // sets deleted_at automatically
+```
+
+</CodeGroup>
+
+## Relations
+
+<CodeGroup>
+
+```javascript Prisma
+// One-to-many
+await prisma.user.findUnique({
+  where: { id: 1 },
+  include: {
+    posts: {
+      where: { published: true },
+      orderBy: { createdAt: 'desc' },
+    }
+  }
+});
+
+// Many-to-many
+await prisma.post.findUnique({
+  where: { id: 1 },
+  include: { tags: true }
+});
+```
+
+```javascript IlanaORM
+// One-to-many with constraint
+await User.query()
+  .withConstraints('posts', (q) => q.where('published', true).orderBy('created_at', 'desc'))
+  .find(1);
+
+// Many-to-many
+await Post.query().with('tags').find(1);
+```
+
+</CodeGroup>
+
+## Transactions
+
+<CodeGroup>
+
+```javascript Prisma
+await prisma.$transaction(async (tx) => {
+  const user = await tx.user.create({ data: { name: 'Alice' } });
+  await tx.post.create({ data: { title: 'Hello', userId: user.id } });
+});
+```
+
+```javascript IlanaORM
+import DB from 'ilana-orm/database/DB.js';
+
+await DB.transaction(async (trx) => {
+  const user = await User.on(trx).create({ name: 'Alice' });
+  await Post.on(trx).create({ title: 'Hello', user_id: user.id });
+});
+```
+
+</CodeGroup>
+
+## Pagination
+
+<CodeGroup>
+
+```javascript Prisma
+const [users, total] = await prisma.$transaction([
+  prisma.user.findMany({ skip: (page - 1) * 10, take: 10 }),
+  prisma.user.count(),
+]);
+```
+
+```javascript IlanaORM
+const result = await User.query().paginate(page, 10);
+// result.data, result.total, result.lastPage
+```
+
+</CodeGroup>
+
+## Migration Path
+
+1. Convert your `schema.prisma` models into IlanaORM `Model` classes
+2. Write migrations using IlanaORM's migration runner (the schema is the same as Knex)
+3. Replace `prisma.model.findMany({ where, include, orderBy })` with the chainable QueryBuilder API
+4. Replace `prisma.$transaction` with `DB.transaction`
+5. Add `static softDeletes = true` instead of manual `deletedAt` middleware

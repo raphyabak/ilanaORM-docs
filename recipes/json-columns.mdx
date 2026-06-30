@@ -1,0 +1,160 @@
+---
+title: 'JSON Columns'
+description: 'Store, query, and cast JSON data in your database columns'
+---
+
+## Storing JSON
+
+Add a JSON column in your migration:
+
+```javascript
+export async function up(schema) {
+  await schema.createTable('products', (table) => {
+    table.increments('id');
+    table.string('name');
+    table.json('metadata');   // untyped JSON
+    table.json('tags');       // array of strings
+    table.json('settings');   // key-value object
+    table.timestamps(true, true);
+  });
+}
+```
+
+## Auto-Casting JSON
+
+Use `casts` to automatically parse/serialize JSON on read and write:
+
+```javascript
+export default class Product extends Model {
+  static table = 'products';
+  static casts = {
+    metadata: 'json',    // parsed on read, serialized on write
+    tags: 'array',       // same as json but semantically an array
+    settings: 'object',  // same as json but semantically a key-value map
+  };
+}
+```
+
+Now you work with native JS objects/arrays — no `JSON.parse()` needed:
+
+```javascript
+const product = await Product.create({
+  name: 'Widget',
+  tags: ['sale', 'featured', 'new'],
+  settings: { color: 'red', size: 'M' },
+  metadata: { weight: 1.2, origin: 'US' },
+});
+
+product.tags;           // ['sale', 'featured', 'new']
+product.settings.color; // 'red'
+```
+
+## Querying JSON Columns
+
+### Check if an Array Contains a Value
+
+```javascript
+// Posts tagged 'featured'
+const featured = await Product.query()
+  .whereJsonContains('tags', 'featured')
+  .get();
+```
+
+### Check Array Length
+
+```javascript
+// Products with more than 3 tags
+const richlyTagged = await Product.query()
+  .whereJsonLength('tags', '>', 3)
+  .get();
+
+// Products with exactly 1 tag
+const singleTag = await Product.query()
+  .whereJsonLength('tags', '=', 1)
+  .get();
+```
+
+<Info>
+`whereJsonContains` and `whereJsonLength` work across MySQL, PostgreSQL, and SQLite. The correct SQL function is chosen automatically based on your database driver.
+</Info>
+
+## Updating JSON Fields
+
+Replace the entire field:
+
+```javascript
+const product = await Product.find(1);
+await product.update({
+  tags: [...product.tags, 'clearance'],
+  settings: { ...product.settings, color: 'blue' },
+});
+```
+
+## Using a Custom Cast Class
+
+For complex transformations, write a cast class:
+
+```javascript
+// casts/PriceCast.js
+export default class PriceCast {
+  // Called when reading from database (cents → dollars)
+  get(value) {
+    return value !== null ? (value / 100).toFixed(2) : null;
+  }
+
+  // Called when writing to database (dollars → cents)
+  set(value) {
+    return Math.round(parseFloat(value) * 100);
+  }
+}
+```
+
+```javascript
+import PriceCast from '../casts/PriceCast.js';
+
+export default class Product extends Model {
+  static casts = {
+    price: PriceCast,
+  };
+}
+```
+
+```javascript
+const product = await Product.create({ name: 'Widget', price: '9.99' });
+// Stored as 999 in the database
+
+product.price; // '9.99' (converted back on read)
+```
+
+## Real-World Example: User Preferences
+
+```javascript
+export default class User extends Model {
+  static casts = {
+    preferences: 'json',
+    notification_channels: 'array',
+  };
+}
+```
+
+```javascript
+// Save preferences
+const user = await User.find(req.user.id);
+await user.update({
+  preferences: {
+    theme: 'dark',
+    language: 'en',
+    timezone: 'UTC',
+  },
+  notification_channels: ['email', 'push'],
+});
+
+// Read preferences
+user.preferences.theme;           // 'dark'
+user.notification_channels;       // ['email', 'push']
+
+// Query users who want email notifications
+const emailUsers = await User.query()
+  .whereJsonContains('notification_channels', 'email')
+  .get();
+```

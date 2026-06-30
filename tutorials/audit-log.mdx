@@ -1,0 +1,179 @@
+---
+title: 'Audit Log'
+description: 'Automatically track every change to your models with events and observers'
+---
+
+## Overview
+
+An audit log records who changed what and when. IlanaORM's model events fire before and after every create, update, and delete — making it straightforward to capture a full change history.
+
+## 1. Create the Audit Log Table
+
+<Tip>
+  Already know your schema? Run `npx ilana make:model AuditLog --migration` to scaffold both files at once and skip straight to [Step 3](#3-create-an-auditable-observer).
+</Tip>
+
+```bash
+npx ilana make:migration create_audit_logs_table
+```
+
+```javascript
+export async function up(schema) {
+  await schema.createTable('audit_logs', (table) => {
+    table.increments('id');
+    table.string('auditable_type').notNullable();  // e.g. 'User', 'Post'
+    table.integer('auditable_id').notNullable();
+    table.string('event').notNullable();           // created, updated, deleted
+    table.integer('user_id').nullable();           // who made the change
+    table.json('old_values').nullable();
+    table.json('new_values').nullable();
+    table.string('ip_address').nullable();
+    table.timestamp('created_at').defaultTo(schema.knex.fn.now());
+    table.index(['auditable_type', 'auditable_id']);
+  });
+}
+
+export async function down(schema) {
+  await schema.dropTable('audit_logs');
+}
+```
+
+```bash
+npx ilana migrate
+```
+
+## 2. Create the AuditLog Model
+
+```javascript
+// models/AuditLog.js
+import Model from 'ilana-orm/orm/Model.js';
+
+export default class AuditLog extends Model {
+  static table = 'audit_logs';
+  static timestamps = false;
+  static fillable = ['auditable_type', 'auditable_id', 'event', 'user_id', 'old_values', 'new_values', 'ip_address'];
+  static casts = { old_values: 'json', new_values: 'json' };
+
+  static {
+    this.register();
+  }
+}
+```
+
+## 3. Create an Auditable Observer
+
+```javascript
+// observers/AuditObserver.js
+import AuditLog from '../models/AuditLog.js';
+import { getCurrentUser, getClientIp } from '../lib/context.js';
+
+export default class AuditObserver {
+  async created(model) {
+    await this._log(model, 'created', null, model.attributes);
+  }
+
+  async updated(model) {
+    await this._log(model, 'updated', model.getOriginal(), model.getDirty());
+  }
+
+  async deleted(model) {
+    await this._log(model, 'deleted', model.attributes, null);
+  }
+
+  async _log(model, event, oldValues, newValues) {
+    const user = getCurrentUser();
+
+    await AuditLog.create({
+      auditable_type: model.constructor.name,
+      auditable_id: model.getKey(),
+      event,
+      user_id: user?.id ?? null,
+      old_values: oldValues,
+      new_values: newValues,
+      ip_address: getClientIp(),
+    });
+  }
+}
+```
+
+## 4. Create an Auditable Mixin
+
+Rather than registering the observer on every model, create a base class:
+
+```javascript
+// models/AuditableModel.js
+import Model from 'ilana-orm/orm/Model.js';
+import AuditObserver from '../observers/AuditObserver.js';
+
+export default class AuditableModel extends Model {
+  static boot() {
+    super.boot?.();
+    this.observe(AuditObserver);
+  }
+}
+```
+
+Extend it on any model you want to audit:
+
+```javascript
+// models/User.js
+import AuditableModel from './AuditableModel.js';
+
+export default class User extends AuditableModel {
+  static table = 'users';
+  static fillable = ['name', 'email', 'role'];
+  static hidden = ['password'];
+
+  static {
+    this.register();
+  }
+}
+```
+
+## 5. Query the Audit Log
+
+```javascript
+// Get all changes to a specific user
+const logs = await AuditLog.query()
+  .where('auditable_type', 'User')
+  .where('auditable_id', 42)
+  .orderBy('created_at', 'desc')
+  .get();
+
+// Get all deletes in the last 24 hours
+const recentDeletes = await AuditLog.query()
+  .where('event', 'deleted')
+  .where('created_at', '>=', new Date(Date.now() - 86400000))
+  .with('user')
+  .get();
+
+// Get all changes made by a specific user
+const userActivity = await AuditLog.query()
+  .where('user_id', req.user.id)
+  .orderBy('created_at', 'desc')
+  .paginate(1, 20);
+```
+
+## 6. Add a Relationship Back to the Model
+
+```javascript
+// On User model — get its own audit history
+auditLogs() {
+  return this.morphMany('AuditLog', 'auditable_type', 'auditable_id');
+}
+```
+
+```javascript
+const user = await User.query().with('auditLogs').find(42);
+console.log(user.auditLogs); // all audit entries for this user
+```
+
+## What You Get
+
+Every create, update, and delete on an `AuditableModel` now writes a row like:
+
+| event | auditable_type | auditable_id | old_values | new_values | user_id |
+|---|---|---|---|---|---|
+| created | User | 1 | null | `{name: "Alice", email: "..."}` | null |
+| updated | User | 1 | `{name: "Alice"}` | `{name: "Alicia"}` | 5 |
+| deleted | Post | 99 | `{title: "Draft"}` | null | 5 |

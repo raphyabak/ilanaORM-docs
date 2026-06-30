@@ -1,0 +1,184 @@
+---
+title: 'Soft Delete Workflow'
+description: 'Implement trash, restore, and permanent delete patterns with soft deletes'
+---
+
+## What Are Soft Deletes?
+
+Instead of removing a row from the database, a soft delete stamps a `deleted_at` timestamp on it. The row stays in the database but is hidden from normal queries. This lets you:
+
+- Recover accidentally deleted records
+- Keep audit history
+- Show users a "trash" bin
+
+## 1. Enable Soft Deletes
+
+<Tip>
+  Already know your schema? Run `npx ilana make:model Post --migration` to scaffold both files at once, add the `deleted_at` column, then skip straight to [Enable on the model](#enable-on-the-model).
+</Tip>
+
+Add `deleted_at` to your migration:
+
+```javascript
+export async function up(schema) {
+  await schema.createTable('posts', (table) => {
+    table.increments('id');
+    table.string('title');
+    table.text('body');
+    table.timestamps(true, true);
+    table.timestamp('deleted_at').nullable(); // ← required
+  });
+}
+```
+
+Enable on the model:
+
+```javascript
+export default class Post extends Model {
+  static table = 'posts';
+  static softDeletes = true; // ← that's it
+
+  static {
+    this.register();
+  }
+}
+```
+
+## 2. Custom Column Name
+
+If your column is named differently, configure it:
+
+```javascript
+export default class Post extends Model {
+  static softDeletes = true;
+  static deletedAt = 'removed_at'; // uses removed_at instead of deleted_at
+}
+```
+
+## 3. Deleting
+
+```javascript
+const post = await Post.find(1);
+await post.delete();
+
+// SQL: UPDATE posts SET deleted_at = NOW() WHERE id = 1
+```
+
+Bulk soft-delete:
+
+```javascript
+await Post.destroy([1, 2, 3]);
+// Soft-deletes each post individually (respects softDeletes = true)
+```
+
+## 4. Normal Queries Exclude Deleted Records
+
+```javascript
+const posts = await Post.all();
+// SQL: SELECT * FROM posts WHERE deleted_at IS NULL
+```
+
+This applies to every query automatically — `get()`, `find()`, `count()`, `exists()`, `paginate()` — all exclude soft-deleted rows.
+
+## 5. Including Deleted Records
+
+```javascript
+// Include soft-deleted records alongside normal ones
+const all = await Post.withTrashed().get();
+// SQL: SELECT * FROM posts (no deleted_at filter)
+
+// Only soft-deleted records
+const trashed = await Post.onlyTrashed().get();
+// SQL: SELECT * FROM posts WHERE deleted_at IS NOT NULL
+```
+
+## 6. Check if a Record is Deleted
+
+```javascript
+const post = await Post.withTrashed().find(1);
+
+post.trashed(); // true if deleted_at is set
+```
+
+## 7. Restore a Deleted Record
+
+```javascript
+const post = await Post.withTrashed().find(1);
+
+if (post.trashed()) {
+  await post.restore();
+  // SQL: UPDATE posts SET deleted_at = NULL WHERE id = 1
+}
+```
+
+## 8. Permanently Delete
+
+```javascript
+const post = await Post.withTrashed().find(1);
+await post.forceDelete();
+// SQL: DELETE FROM posts WHERE id = 1
+```
+
+## 9. Building a Trash API
+
+A complete trash/restore/purge flow:
+
+```javascript
+// GET /trash — list soft-deleted posts
+app.get('/trash', async (req, res) => {
+  const trashed = await Post.onlyTrashed()
+    .orderBy('deleted_at', 'desc')
+    .paginate(req.query.page, 20);
+  res.json(trashed);
+});
+
+// PATCH /trash/:id/restore — restore a post
+app.patch('/trash/:id/restore', async (req, res) => {
+  const post = await Post.withTrashed().find(req.params.id);
+  if (!post?.trashed()) return res.status(404).json({ message: 'Not in trash' });
+
+  await post.restore();
+  res.json(post);
+});
+
+// DELETE /trash/:id — permanently delete
+app.delete('/trash/:id', async (req, res) => {
+  const post = await Post.withTrashed().find(req.params.id);
+  if (!post?.trashed()) return res.status(404).json({ message: 'Not in trash' });
+
+  await post.forceDelete();
+  res.json({ message: 'Permanently deleted' });
+});
+
+// DELETE /trash — empty trash (purge all deleted posts)
+app.delete('/trash', async (req, res) => {
+  const trashed = await Post.onlyTrashed().get();
+  for (const post of trashed) {
+    await post.forceDelete();
+  }
+  res.json({ message: `${trashed.length} posts permanently deleted` });
+});
+```
+
+## 10. Relations Across Soft Deletes
+
+By default, eager-loaded relations also exclude soft-deleted records. To include trashed related records:
+
+```javascript
+const user = await User.query()
+  .withConstraints('posts', (q) => q.withTrashed())
+  .find(1);
+```
+
+## Quick Reference
+
+| Action | Method |
+|---|---|
+| Soft delete | `model.delete()` |
+| Soft delete multiple | `Model.destroy([1, 2, 3])` |
+| Restore | `model.restore()` |
+| Permanent delete | `model.forceDelete()` |
+| Is deleted? | `model.trashed()` |
+| Include deleted in query | `.withTrashed()` |
+| Only deleted in query | `.onlyTrashed()` |
+| Exclude deleted (default) | automatic |

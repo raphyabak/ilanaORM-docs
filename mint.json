@@ -81,6 +81,33 @@
       ]
     },
     {
+      "group": "Tutorials",
+      "pages": [
+        "tutorials/blog-api",
+        "tutorials/auth-system",
+        "tutorials/soft-delete-workflow",
+        "tutorials/audit-log",
+        "tutorials/multi-tenancy"
+      ]
+    },
+    {
+      "group": "Recipes",
+      "pages": [
+        "recipes/pagination",
+        "recipes/search-filter",
+        "recipes/json-columns",
+        "recipes/polymorphic-relations"
+      ]
+    },
+    {
+      "group": "Migrating to IlanaORM",
+      "pages": [
+        "migrations/from-sequelize",
+        "migrations/from-prisma",
+        "migrations/from-knex-raw"
+      ]
+    },
+    {
       "group": "API Documentation",
       "pages": [
         "api-reference/introduction"

@@ -1,0 +1,232 @@
+---
+title: 'Migrating from Sequelize'
+description: 'Side-by-side comparison of Sequelize and IlanaORM patterns'
+---
+
+## Why Switch?
+
+Sequelize requires a lot of ceremony — defining models with `DataTypes`, manually syncing associations, and verbose query syntax. IlanaORM follows the Eloquent convention-over-configuration approach: less boilerplate, more readable code.
+
+## Model Definition
+
+<CodeGroup>
+
+```javascript Sequelize
+const { DataTypes } = require('sequelize');
+
+const User = sequelize.define('User', {
+  name: { type: DataTypes.STRING, allowNull: false },
+  email: { type: DataTypes.STRING, allowNull: false, unique: true },
+  role: { type: DataTypes.ENUM('user', 'admin'), defaultValue: 'user' },
+}, {
+  tableName: 'users',
+  paranoid: true, // soft deletes
+});
+```
+
+```javascript IlanaORM
+import Model from 'ilana-orm/orm/Model.js';
+
+export default class User extends Model {
+  static table = 'users';
+  static softDeletes = true;
+  static fillable = ['name', 'email', 'role'];
+
+  static { this.register(); }
+}
+```
+
+</CodeGroup>
+
+## Querying
+
+<CodeGroup>
+
+```javascript Sequelize
+// Find all
+await User.findAll();
+
+// Find by primary key
+await User.findByPk(1);
+
+// Find with condition
+await User.findOne({ where: { email: 'alice@example.com' } });
+
+// Find with AND conditions
+await User.findAll({
+  where: { role: 'admin', email: { [Op.like]: '%@company.com' } }
+});
+```
+
+```javascript IlanaORM
+// Find all
+await User.all();
+
+// Find by primary key
+await User.find(1);
+
+// Find with condition
+await User.query().where('email', 'alice@example.com').first();
+
+// Find with AND conditions
+await User.query()
+  .where('role', 'admin')
+  .where('email', 'like', '%@company.com')
+  .get();
+```
+
+</CodeGroup>
+
+## Creating Records
+
+<CodeGroup>
+
+```javascript Sequelize
+const user = await User.create({
+  name: 'Alice',
+  email: 'alice@example.com',
+});
+```
+
+```javascript IlanaORM
+const user = await User.create({
+  name: 'Alice',
+  email: 'alice@example.com',
+});
+```
+
+</CodeGroup>
+
+## Updating Records
+
+<CodeGroup>
+
+```javascript Sequelize
+const user = await User.findByPk(1);
+await user.update({ name: 'Alicia' });
+
+// or bulk update
+await User.update({ role: 'admin' }, { where: { email: { [Op.like]: '%@company.com' } } });
+```
+
+```javascript IlanaORM
+const user = await User.find(1);
+await user.update({ name: 'Alicia' });
+
+// or bulk update
+await User.query()
+  .where('email', 'like', '%@company.com')
+  .update({ role: 'admin' });
+```
+
+</CodeGroup>
+
+## Deleting Records
+
+<CodeGroup>
+
+```javascript Sequelize
+const user = await User.findByPk(1);
+await user.destroy(); // soft delete if paranoid: true
+
+// Force delete
+await user.destroy({ force: true });
+
+// Restore
+await user.restore();
+```
+
+```javascript IlanaORM
+const user = await User.find(1);
+await user.delete(); // soft delete if softDeletes = true
+
+// Force delete
+await user.forceDelete();
+
+// Restore
+await user.restore();
+```
+
+</CodeGroup>
+
+## Associations / Relationships
+
+<CodeGroup>
+
+```javascript Sequelize
+// Definition (in two files + index.js to wire them up)
+User.hasMany(Post, { foreignKey: 'user_id', as: 'posts' });
+Post.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+// Querying with include
+await User.findByPk(1, {
+  include: [{ model: Post, as: 'posts' }]
+});
+```
+
+```javascript IlanaORM
+// Definition (inside the model class)
+class User extends Model {
+  posts() { return this.hasMany('Post', 'user_id'); }
+}
+class Post extends Model {
+  user() { return this.belongsTo('User', 'user_id'); }
+}
+
+// Querying with eager load
+await User.query().with('posts').find(1);
+```
+
+</CodeGroup>
+
+## Pagination
+
+<CodeGroup>
+
+```javascript Sequelize
+const { count, rows } = await Post.findAndCountAll({
+  limit: 10,
+  offset: (page - 1) * 10,
+});
+```
+
+```javascript IlanaORM
+const result = await Post.query().paginate(page, 10);
+// result.data, result.total, result.lastPage, result.currentPage
+```
+
+</CodeGroup>
+
+## Transactions
+
+<CodeGroup>
+
+```javascript Sequelize
+const t = await sequelize.transaction();
+try {
+  await User.create({ name: 'Alice' }, { transaction: t });
+  await Post.create({ title: 'Hello' }, { transaction: t });
+  await t.commit();
+} catch (err) {
+  await t.rollback();
+}
+```
+
+```javascript IlanaORM
+import DB from 'ilana-orm/database/DB.js';
+
+await DB.transaction(async (trx) => {
+  await User.on(trx).create({ name: 'Alice' });
+  await Post.on(trx).create({ title: 'Hello' });
+});
+```
+
+</CodeGroup>
+
+## Migration Path
+
+1. Replace `sequelize.define(...)` with a class extending `Model`
+2. Move association definitions into model methods (`hasMany`, `belongsTo`, etc.)
+3. Replace `include: [...]` with `.with(...)`
+4. Replace `Op.like`, `Op.gt`, etc. with `.where('col', 'like', '%value%')`
+5. Delete the Sequelize `models/index.js` wiring file — IlanaORM doesn't need it

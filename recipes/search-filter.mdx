@@ -1,0 +1,140 @@
+---
+title: 'Search & Filtering'
+description: 'Build dynamic, composable search and filter APIs with when() and scopes'
+---
+
+## The Problem with Conditional Queries
+
+A typical filter API has many optional parameters. Without `when()`, you end up with messy branching:
+
+```javascript
+// ❌ Hard to read, easy to get wrong
+let query = Post.query();
+if (req.query.published) query = query.where('published', true);
+if (req.query.author) query = query.where('user_id', req.query.author);
+if (req.query.search) query = query.where('title', 'like', `%${req.query.search}%`);
+const posts = await query.get();
+```
+
+## Use `when()` for Conditional Clauses
+
+`when(condition, callback)` applies the callback only when the condition is truthy — keeping the chain clean:
+
+```javascript
+// ✅ Clean and composable
+const posts = await Post.query()
+  .when(req.query.published, (q) => q.where('published', true))
+  .when(req.query.author,    (q) => q.where('user_id', req.query.author))
+  .when(req.query.search,    (q) => q.where('title', 'like', `%${req.query.search}%`))
+  .when(req.query.tag,       (q) => q.whereHas('tags', (sq) => sq.where('slug', req.query.tag)))
+  .orderBy('created_at', 'desc')
+  .paginate(req.query.page ?? 1, 15);
+```
+
+## `unless()` for Inverse Conditions
+
+`unless(condition, callback)` runs the callback when the condition is **falsy**:
+
+```javascript
+const posts = await Post.query()
+  .unless(req.user?.isAdmin(), (q) => q.where('published', true)) // non-admins only see published
+  .get();
+```
+
+## Scopes for Reusable Filters
+
+Define filters once on the model, use them anywhere:
+
+```javascript
+// models/Post.js
+export default class Post extends Model {
+  static scopePublished(query) {
+    return query.where('published', true);
+  }
+
+  static scopeByAuthor(query, userId) {
+    return query.where('user_id', userId);
+  }
+
+  static scopeSearch(query, term) {
+    return query.where((q) => {
+      q.where('title', 'like', `%${term}%`)
+       .orWhere('body', 'like', `%${term}%`);
+    });
+  }
+
+  static scopeRecent(query, days = 7) {
+    const since = new Date(Date.now() - days * 86400000);
+    return query.where('created_at', '>=', since);
+  }
+}
+```
+
+Now the filter API reads like plain English:
+
+```javascript
+const posts = await Post.query()
+  .published()
+  .when(req.query.author, (q) => q.byAuthor(req.query.author))
+  .when(req.query.search, (q) => q.search(req.query.search))
+  .when(req.query.recent, (q) => q.recent(req.query.recent))
+  .paginate(req.query.page ?? 1, 15);
+```
+
+## Full Search API Example
+
+```javascript
+// GET /posts?search=node&author=42&tag=tutorial&from=2024-01-01&sort=popular&page=2
+app.get('/posts', async (req, res) => {
+  const { search, author, tag, from, to, sort, page = 1 } = req.query;
+
+  const posts = await Post.query()
+    .with('user', 'tags')
+    .withCount('comments')
+
+    // Text search
+    .when(search, (q) =>
+      q.where((inner) =>
+        inner
+          .where('title', 'like', `%${search}%`)
+          .orWhere('body', 'like', `%${search}%`)
+      )
+    )
+
+    // Author filter
+    .when(author, (q) => q.where('user_id', author))
+
+    // Tag filter (relation constraint)
+    .when(tag, (q) => q.whereHas('tags', (sq) => sq.where('slug', tag)))
+
+    // Date range
+    .when(from, (q) => q.where('created_at', '>=', new Date(from)))
+    .when(to,   (q) => q.where('created_at', '<=', new Date(to)))
+
+    // Sorting
+    .when(sort === 'popular',  (q) => q.orderBy('views', 'desc'))
+    .when(sort === 'comments', (q) => q.orderBy('comments_count', 'desc'))
+    .unless(sort, (q) => q.orderBy('created_at', 'desc')) // default sort
+
+    // Always published for non-admins
+    .unless(req.user?.isAdmin(), (q) => q.where('published', true))
+
+    .paginate(page, 15);
+
+  res.json(posts);
+});
+```
+
+## Global Scopes for Always-On Filters
+
+If a filter should apply to **every** query on a model, use a global scope:
+
+```javascript
+// Only show active posts everywhere, automatically
+Post.addGlobalScope('active', (query) => {
+  query.where('status', 'active');
+});
+
+// Override when needed
+await Post.withoutGlobalScope('active').get(); // all posts
+```

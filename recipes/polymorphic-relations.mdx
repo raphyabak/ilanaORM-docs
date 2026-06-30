@@ -1,0 +1,188 @@
+---
+title: 'Polymorphic Relations'
+description: 'Use morphTo, morphOne, and morphMany to relate a model to multiple other models'
+---
+
+## What Are Polymorphic Relations?
+
+A polymorphic relation lets a single model belong to more than one other model using the same association. The classic example: **comments** that can belong to either a `Post` or a `Video` — without needing a separate `post_comments` and `video_comments` table.
+
+## How It Works
+
+Two special columns store the type and ID of the parent:
+
+| Column | Example Value |
+|---|---|
+| `commentable_type` | `'Post'` or `'Video'` |
+| `commentable_id` | `42` |
+
+## 1. Migration
+
+```javascript
+export async function up(schema) {
+  await schema.createTable('comments', (table) => {
+    table.increments('id');
+    table.integer('user_id').unsigned().references('id').inTable('users');
+    table.string('commentable_type').notNullable();  // 'Post' or 'Video'
+    table.integer('commentable_id').unsigned().notNullable();
+    table.text('body').notNullable();
+    table.timestamps(true, true);
+    table.index(['commentable_type', 'commentable_id']);
+  });
+}
+```
+
+## 2. Models
+
+**Comment** — the "child" side, uses `morphTo`:
+
+```javascript
+// models/Comment.js
+import Model from 'ilana-orm/orm/Model.js';
+
+export default class Comment extends Model {
+  static table = 'comments';
+  static fillable = ['user_id', 'commentable_type', 'commentable_id', 'body'];
+
+  static { this.register(); }
+
+  // Belongs to either a Post or a Video
+  commentable() {
+    return this.morphTo('commentable_type', 'commentable_id');
+  }
+
+  user() {
+    return this.belongsTo('User', 'user_id');
+  }
+}
+```
+
+**Post** and **Video** — the "parent" sides, use `morphMany`:
+
+```javascript
+// models/Post.js
+import Model from 'ilana-orm/orm/Model.js';
+
+export default class Post extends Model {
+  static table = 'posts';
+  static { this.register(); }
+
+  comments() {
+    return this.morphMany('Comment', 'commentable_type', 'commentable_id');
+  }
+}
+```
+
+```javascript
+// models/Video.js
+import Model from 'ilana-orm/orm/Model.js';
+
+export default class Video extends Model {
+  static table = 'videos';
+  static { this.register(); }
+
+  comments() {
+    return this.morphMany('Comment', 'commentable_type', 'commentable_id');
+  }
+}
+```
+
+## 3. Creating Polymorphic Records
+
+```javascript
+const post = await Post.find(1);
+
+// Create a comment on a post
+await Comment.create({
+  user_id: req.user.id,
+  commentable_type: 'Post',
+  commentable_id: post.id,
+  body: 'Great article!',
+});
+
+const video = await Video.find(5);
+
+// Create a comment on a video
+await Comment.create({
+  user_id: req.user.id,
+  commentable_type: 'Video',
+  commentable_id: video.id,
+  body: 'Loved this video!',
+});
+```
+
+## 4. Querying
+
+**Load comments for a post:**
+
+```javascript
+const post = await Post.query().with('comments.user').find(1);
+post.comments; // all comments on this post
+```
+
+**Load what a comment belongs to:**
+
+```javascript
+const comment = await Comment.query().with('commentable').find(42);
+comment.commentable; // either a Post or a Video instance
+```
+
+**Load recent comments across all types:**
+
+```javascript
+const recent = await Comment.query()
+  .with('commentable', 'user')
+  .orderBy('created_at', 'desc')
+  .limit(10)
+  .get();
+
+recent.forEach(comment => {
+  console.log(`${comment.user.name} commented on a ${comment.commentable_type}`);
+});
+```
+
+## 5. `morphOne` — Single Polymorphic Child
+
+Use `morphOne` when only one child record exists per parent — for example, each post has one `FeaturedImage`:
+
+```javascript
+// models/FeaturedImage.js
+export default class FeaturedImage extends Model {
+  static table = 'featured_images';
+  static { this.register(); }
+
+  imageable() {
+    return this.morphTo('imageable_type', 'imageable_id');
+  }
+}
+
+// models/Post.js
+featuredImage() {
+  return this.morphOne('FeaturedImage', 'imageable_type', 'imageable_id');
+}
+```
+
+```javascript
+const post = await Post.query().with('featuredImage').find(1);
+post.featuredImage; // single FeaturedImage or null
+```
+
+## Common Use Cases
+
+| Polymorphic relation | Example |
+|---|---|
+| Comments on posts and videos | `morphMany` / `morphTo` |
+| Tags on any model | `morphMany` / `morphTo` |
+| Likes on posts, comments, videos | `morphMany` / `morphTo` |
+| Featured image for posts and products | `morphOne` / `morphTo` |
+| Notifications for any actor | `morphMany` / `morphTo` |
+
+## Important: Register Your Models
+
+Polymorphic resolution works by looking up model classes by name in the registry. Make sure every model involved in the relation has `static { this.register(); }`:
+
+```javascript
+export default class Post extends Model {
+  static { this.register(); } // ← required for morphTo resolution
+}
+```

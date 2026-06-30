@@ -1,0 +1,161 @@
+---
+title: 'Multi-Tenancy'
+description: 'Scope all queries to a tenant automatically using global scopes'
+---
+
+## Overview
+
+Multi-tenancy means multiple customers (tenants) share the same database but each can only see their own data. IlanaORM's global scopes make this automatic — once set up, every query on a model is silently filtered to the current tenant.
+
+<Info>
+This tutorial uses a `tenant_id` column approach (row-level tenancy), which works with any relational database.
+</Info>
+
+## 1. Add `tenant_id` to Your Tables
+
+<Tip>
+  Already know your schema? Run `npx ilana make:model Post --migration` to scaffold both files at once and skip straight to [Step 2](#2-create-a-tenant-context).
+</Tip>
+
+```javascript
+export async function up(schema) {
+  await schema.createTable('posts', (table) => {
+    table.increments('id');
+    table.integer('tenant_id').unsigned().notNullable().index();
+    table.string('title');
+    table.text('body');
+    table.timestamps(true, true);
+  });
+}
+```
+
+## 2. Create a Tenant Context
+
+Store the current tenant in an async context so it's available anywhere without passing it around:
+
+```javascript
+// lib/tenantContext.js
+import { AsyncLocalStorage } from 'async_hooks';
+
+const storage = new AsyncLocalStorage();
+
+export const TenantContext = {
+  run(tenantId, fn) {
+    return storage.run({ tenantId }, fn);
+  },
+
+  getId() {
+    return storage.getStore()?.tenantId ?? null;
+  },
+};
+```
+
+## 3. Create a Tenant-Aware Base Model
+
+```javascript
+// models/TenantModel.js
+import Model from 'ilana-orm/orm/Model.js';
+import { TenantContext } from '../lib/tenantContext.js';
+
+export default class TenantModel extends Model {
+  static boot() {
+    super.boot?.();
+
+    this.addGlobalScope('tenant', (query) => {
+      const tenantId = TenantContext.getId();
+      if (tenantId) {
+        query.where(`${this.getTableName()}.tenant_id`, tenantId);
+      }
+    });
+  }
+}
+```
+
+Extend `TenantModel` instead of `Model` for any tenant-scoped model:
+
+```javascript
+// models/Post.js
+import TenantModel from './TenantModel.js';
+
+export default class Post extends TenantModel {
+  static table = 'posts';
+  static fillable = ['title', 'body'];
+
+  static {
+    this.register();
+  }
+}
+```
+
+## 4. Wire Up the Middleware
+
+```javascript
+// middleware/tenant.js
+import { TenantContext } from '../lib/tenantContext.js';
+
+export function tenantMiddleware(req, res, next) {
+  // Resolve tenant from subdomain, header, JWT claim, etc.
+  const tenantId = resolveTenant(req);
+
+  if (!tenantId) return res.status(401).json({ message: 'Unknown tenant' });
+
+  // All code inside this request runs with tenantId in context
+  TenantContext.run(tenantId, next);
+}
+
+function resolveTenant(req) {
+  // Example: resolve from x-tenant-id header
+  return req.headers['x-tenant-id'] ?? null;
+}
+```
+
+```javascript
+// app.js
+app.use(tenantMiddleware);
+```
+
+## 5. Everything Just Works
+
+Now every query is automatically scoped:
+
+```javascript
+// GET /posts — only returns posts for the current tenant
+app.get('/posts', async (req, res) => {
+  const posts = await Post.query().get();
+  // SQL: SELECT * FROM posts WHERE tenant_id = 42
+  res.json(posts);
+});
+
+// POST /posts — automatically stamp tenant_id on create
+app.post('/posts', async (req, res) => {
+  const tenantId = TenantContext.getId();
+  const post = await Post.create({
+    tenant_id: tenantId,
+    title: req.body.title,
+    body: req.body.body,
+  });
+  res.status(201).json(post);
+});
+```
+
+## 6. Bypass the Scope When Needed
+
+For admin routes that need cross-tenant access:
+
+```javascript
+// GET /admin/posts — see all tenants
+app.get('/admin/posts', adminOnly, async (req, res) => {
+  const posts = await Post.withoutGlobalScope('tenant').get();
+  res.json(posts);
+});
+```
+
+## Summary
+
+| Step | What it does |
+|---|---|
+| `tenant_id` column | Isolates rows per tenant |
+| `AsyncLocalStorage` | Carries tenant ID through async call chains |
+| Global scope | Automatically filters every query |
+| Middleware | Sets the tenant ID at the request boundary |
+| `withoutGlobalScope('tenant')` | Escapes the filter for admin use |
