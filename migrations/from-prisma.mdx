@@ -246,7 +246,7 @@ const result = await User.query().paginate(page, 10);
 ## Migration Path
 
 1. Convert your `schema.prisma` models into IlanaORM `Model` classes
-2. Write migrations using IlanaORM's migration runner (the schema is the same as Knex)
+2. Write migrations using IlanaORM's migration runner
 3. Replace `prisma.model.findMany({ where, include, orderBy })` with the chainable QueryBuilder API
 4. Replace `prisma.$transaction` with `DB.transaction`
 5. Add `static softDeletes = true` instead of manual `deletedAt` middleware

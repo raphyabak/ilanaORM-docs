@@ -28,7 +28,7 @@ export async function up(schema) {
     table.json('old_values').nullable();
     table.json('new_values').nullable();
     table.string('ip_address').nullable();
-    table.timestamp('created_at').defaultTo(schema.knex.fn.now());
+    table.timestamp('created_at').defaultTo('CURRENT_TIMESTAMP');
     table.index(['auditable_type', 'auditable_id']);
   });
 }

@@ -44,6 +44,19 @@ This API reference provides comprehensive documentation for all IlanaORM methods
 | `restore()`        | Restore soft deleted            | `user.restore()`                                                   |
 | `load()`           | Lazy load relations             | `user.load('posts')`                                               |
 | `loadMissing()`    | Load missing relations          | `user.loadMissing('posts', 'roles')`                               |
+| `is()`             | Check if same record            | `user.is(otherUser)`                                               |
+| `isNot()`          | Check if different record       | `user.isNot(otherUser)`                                            |
+| `replicate()`      | Clone as new unsaved record     | `user.replicate(['slug'])`                                         |
+| `fresh()`          | Re-fetch from database          | `user.fresh()`                                                     |
+| `increment()`      | Increment a column              | `user.increment('login_count')`                                    |
+| `decrement()`      | Decrement a column              | `user.decrement('credits', 5)`                                     |
+| `withoutEvents()`  | Run callback without events     | `User.withoutEvents(async () => { ... })`                          |
+| `prune()`          | Delete all prunable records     | `User.prune()`                                                     |
+| `prunable()`       | Define prunable query           | `static prunable() { return this.query().where(...) }`             |
+| `generateUuid()`   | Generate a UUID                 | `User.generateUuid()`                                              |
+| `generateUlid()`   | Generate a ULID                 | `User.generateUlid()`                                              |
+| `seed()`           | Seed using factory              | `User.seed(10)`                                                    |
+| `truncate()`       | Delete all rows                 | `User.truncate()`                                                  |
 
 ### Query Builder
 
@@ -70,6 +83,7 @@ This API reference provides comprehensive documentation for all IlanaORM methods
 | `when()`              | Conditional query               | `query.when(condition, callback)`                            |
 | `unless()`            | Conditional query (inverse)     | `query.unless(condition, callback)`                          |
 | `orderBy()`           | Order results                   | `query.orderBy('created_at', 'desc')`                        |
+| `orderBySubquery()`   | Order by subquery value         | `query.orderBySubquery(q => q.from('votes').count(), 'desc')` |
 | `latest()`            | Order by column desc            | `query.latest('created_at')`                                 |
 | `oldest()`            | Order by column asc             | `query.oldest('created_at')`                                 |
 | `inRandomOrder()`     | Random order                    | `query.inRandomOrder()`                                      |
@@ -83,7 +97,7 @@ This API reference provides comprehensive documentation for all IlanaORM methods
 | `forPage()`           | For page                        | `query.forPage(2, 15)`                                       |
 | `select()`            | Select columns                  | `query.select('id', 'name', 'email')`                        |
 | `selectRaw()`         | Raw select                      | `query.selectRaw('COUNT(*) as count')`                       |
-| `addSelect()`         | Add select columns              | `query.addSelect('created_at')`                              |
+| `addSelect()`         | Add columns or subquery columns | `query.addSelect({ total: q => q.from('orders').count() })`  |
 | `distinct()`          | Distinct results                | `query.distinct()`                                           |
 | `join()`              | Join tables                     | `query.join('users', 'posts.user_id', 'users.id')`           |
 | `leftJoin()`          | Left join                       | `query.leftJoin('profiles', 'users.id', 'profiles.user_id')` |
@@ -125,6 +139,13 @@ This API reference provides comprehensive documentation for all IlanaORM methods
 | `skipLocked()`        | Skip locked                     | `query.skipLocked()`                                         |
 | `noWait()`            | No wait                         | `query.noWait()`                                             |
 | `clone()`             | Clone query                     | `query.clone()`                                              |
+| `restore()`           | Bulk restore soft-deleted rows  | `query.onlyTrashed().restore()`                              |
+| `sole()`              | First or throw if not exactly 1 | `query.sole()`                                               |
+| `tap()`               | Side-effect callback in chain   | `query.tap(q => console.log(q.toSQL()))`                     |
+| `values()`            | Plain objects, no model wrapping | `query.values()`                                            |
+| `withPendingAttributes()` | Set scope attribute defaults | `query.withPendingAttributes({ status: 'draft' })`          |
+| `new()`               | New instance with pending attrs | `query.published().new({ title: 'Draft' })`                  |
+| `create()`            | Create record with pending attrs | `query.published().create({ title: 'Post' })`               |
 
 ### Relationships
 
@@ -275,7 +296,7 @@ class User extends Model {
   // Table configuration
   static table = "users";
   static primaryKey = "id";
-  static keyType = "number";
+  static keyType = "number"; // 'number' | 'string' | 'uuid' | 'ulid'
   static incrementing = true;
   static connection = "mysql";
 

@@ -42,7 +42,7 @@ export async function up(schema) {
   await schema.createTable('password_reset_tokens', (table) => {
     table.string('email').notNullable().index();
     table.string('token').notNullable();
-    table.timestamp('created_at').defaultTo(schema.knex.fn.now());
+    table.timestamp('created_at').defaultTo('CURRENT_TIMESTAMP');
   });
 }
 ```

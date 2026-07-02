@@ -48,7 +48,10 @@
               "advanced/observers",
               "advanced/casting",
               "advanced/scopes",
-              "advanced/debugging"
+              "advanced/debugging",
+              "advanced/vector-search",
+              "advanced/edge-runtime",
+              "advanced/supabase"
             ]
           },
           {

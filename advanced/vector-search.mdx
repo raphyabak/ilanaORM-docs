@@ -1,0 +1,212 @@
+---
+title: 'Vector Search'
+description: 'Add AI-powered semantic search to any model using pgvector'
+---
+
+## What is vector search?
+
+Traditional search matches exact keywords. Vector search matches by **meaning** — so a query for "javascript tips" also returns results about "js performance" or "node.js tricks" even if those exact words aren't in the query.
+
+The way it works:
+
+1. You send text to an **embedding model** (an AI model that converts text to numbers)
+2. The model returns a list of numbers called an **embedding** — e.g. `[0.02, -0.14, 0.87, ...]`
+3. You store that embedding alongside each record in the database
+4. When searching, you convert the search query to an embedding the same way, then find records whose embeddings are mathematically closest
+
+```
+"javascript tips"  →  AI model  →  [0.02, -0.14, 0.87, ...]  ← stored in DB per post
+"js performance"   →  AI model  →  [0.03, -0.12, 0.85, ...]  ← search query vector
+
+PostgreSQL finds posts whose stored vectors are closest to the query vector
+```
+
+<Note>
+**Do you need an AI model?** Yes — an embedding model is required to convert text into vectors. You can use a hosted API like [OpenAI Embeddings](https://platform.openai.com/docs/guides/embeddings), [Cohere](https://cohere.com/embeddings), or [Voyage AI](https://www.voyageai.com/), or run a model locally with [Ollama](https://ollama.com/). IlanaORM doesn't include an embedding model — you bring your own and plug it in as a function.
+</Note>
+
+<Warning>
+pgvector is **PostgreSQL only**. It does not work with MySQL or SQLite.
+</Warning>
+
+---
+
+## Setup
+
+### 1. Enable the pgvector extension
+
+In a migration:
+
+```javascript
+class EnableVectorExtension {
+  async up(schema) {
+    await schema.enableVectorExtension();
+    // runs: CREATE EXTENSION IF NOT EXISTS vector
+  }
+  async down(schema) {
+    await schema.raw('DROP EXTENSION IF EXISTS vector');
+  }
+}
+module.exports = EnableVectorExtension;
+```
+
+### 2. Add an embedding column
+
+The number of dimensions must match your embedding model's output. OpenAI's `text-embedding-ada-002` outputs 1536 dimensions.
+
+```javascript
+class AddEmbeddingToPosts {
+  async up(schema) {
+    await schema.table('posts', (table) => {
+      table.specificType('embedding', 'vector(1536)'); // match your model's dimensions
+    });
+  }
+  async down(schema) {
+    await schema.table('posts', (table) => {
+      table.dropColumn('embedding');
+    });
+  }
+}
+module.exports = AddEmbeddingToPosts;
+```
+
+### 3. Configure the model
+
+Tell IlanaORM which column holds embeddings and provide a function that converts text to a vector:
+
+```javascript
+import OpenAI from 'openai';
+const openai = new OpenAI();
+
+class Post extends Model {
+  static table = 'posts';
+
+  // Which column stores the embedding (default: 'embedding')
+  static embeddingColumn = 'embedding';
+
+  // The embedding model's output size — for reference/validation
+  static embeddingDimensions = 1536;
+
+  // The function that converts text → number[]
+  // Must return a Promise<number[]>
+  static embeddingProvider = async (text) => {
+    const res = await openai.embeddings.create({
+      model: 'text-embedding-ada-002',
+      input: text,
+    });
+    return res.data[0].embedding;
+  };
+
+  static { this.register(); }
+}
+```
+
+---
+
+## Storing embeddings
+
+When creating or updating a record, generate and store the embedding:
+
+```javascript
+// Generate embedding before saving
+const text = `${title} ${body}`;
+const embedding = await Post.embeddingProvider(text);
+
+const post = await Post.create({
+  title,
+  body,
+  embedding: JSON.stringify(embedding), // pgvector accepts JSON array format
+});
+```
+
+Or use a model event to do it automatically:
+
+```javascript
+class Post extends Model {
+  static embeddingProvider = async (text) => { /* ... */ };
+
+  static {
+    this.creating(async (post) => {
+      const text = `${post.title} ${post.body}`;
+      post.embedding = JSON.stringify(await Post.embeddingProvider(text));
+    });
+
+    this.register();
+  }
+}
+```
+
+---
+
+## Searching
+
+### `Model.search(text, options?)`
+
+Converts the search text to a vector using the embedding provider, then finds the nearest records:
+
+```javascript
+// Basic search — uses model-level embeddingProvider
+const posts = await Post.search('javascript performance tips');
+
+// With options
+const posts = await Post.search('machine learning basics', {
+  limit: 5,                  // how many results (default: 10)
+  distance: 'cosine',        // similarity metric (default: 'cosine')
+  provider: myEmbedder,      // override the embedding function for this call
+});
+```
+
+### `Model.nearestTo(vector, options?)`
+
+Search by a raw vector — useful when you already have a pre-computed embedding:
+
+```javascript
+// Get a vector first
+const queryVector = await myEmbedder('search term');
+
+// Then search by it
+const posts = await Post.nearestTo(queryVector, {
+  limit: 10,
+  distance: 'l2',
+});
+```
+
+### Results
+
+Each result has a `distance` attribute — lower means more similar (for `cosine` and `l2`):
+
+```javascript
+const posts = await Post.search('nodejs tips');
+posts.forEach(post => {
+  console.log(post.title, '→ distance:', post.distance);
+});
+```
+
+---
+
+## Distance metrics
+
+| Option | SQL operator | Meaning |
+|---|---|---|
+| `cosine` (default) | `<=>` | Angle between vectors — best for most text search |
+| `l2` | `<->` | Straight-line distance between vectors |
+| `inner` | `<#>` | Dot product — use when vectors are normalized |
+
+For most text search use cases, `cosine` is the right choice.
+
+---
+
+## Performance
+
+Add an index so similarity queries don't scan the entire table:
+
+```javascript
+// In a migration
+async up(schema) {
+  await schema.raw(
+    `CREATE INDEX ON posts USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`
+  );
+}
+```
+
+Without an index, PostgreSQL does an exact scan of every row — fine for small tables, slow for large ones.

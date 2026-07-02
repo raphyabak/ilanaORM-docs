@@ -1,0 +1,126 @@
+---
+title: 'Edge Runtime'
+description: 'Use IlanaORM in Cloudflare Workers, Deno, Bun, and Next.js edge routes'
+---
+
+## What is an edge runtime?
+
+An **edge runtime** is a server environment that runs your code closer to the user — on servers distributed around the world rather than in one central data center. Examples include Cloudflare Workers, Deno Deploy, Bun, and Next.js edge routes.
+
+Edge runtimes are fast and lightweight, but they are **sandboxed** — they intentionally strip out many Node.js APIs to keep the environment small and secure. In particular, they have no access to the file system (`fs`) and no `path` module.
+
+**Why does this affect IlanaORM?**
+
+By default, when you import IlanaORM, it automatically looks for and loads your `ilana.config.js` file using Node.js `fs` and `path`. This works perfectly in a normal Node.js server, but it crashes immediately in an edge runtime because those APIs don't exist there.
+
+IlanaORM solves this with a separate **edge entry point** that skips the auto-loader entirely. Everything else — models, queries, relations, transactions — works exactly the same.
+
+---
+
+## Usage
+
+Import from `ilana-orm/edge` instead of `ilana-orm`:
+
+```javascript
+// Standard (Node.js) — auto-loads ilana.config.js
+import { Model } from 'ilana-orm';
+
+// Edge runtime — no auto-loading, configure manually
+import { Model, Database } from 'ilana-orm/edge';
+```
+
+Since there's no config file to auto-load, you must call `Database.configure()` yourself before using any models:
+
+```javascript
+import { Model, Database } from 'ilana-orm/edge';
+
+Database.configure({
+  default: 'pg',
+  connections: {
+    pg: {
+      client: 'pg',
+      connection: {
+        host: process.env.DB_HOST,
+        port: 5432,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_NAME,
+      },
+    },
+  },
+});
+
+// Now use models normally
+const users = await User.where('is_active', true).get();
+```
+
+---
+
+## Cloudflare Workers
+
+```javascript
+import { Database } from 'ilana-orm/edge';
+import User from './models/User';
+
+Database.configure({
+  default: 'pg',
+  connections: {
+    pg: {
+      client: 'pg',
+      connection: { connectionString: env.DATABASE_URL },
+    },
+  },
+});
+
+export default {
+  async fetch(request, env) {
+    const users = await User.where('is_active', true).limit(10).get();
+    return Response.json(users);
+  },
+};
+```
+
+---
+
+## Next.js Edge Routes
+
+```javascript
+// app/api/users/route.js
+import { NextResponse } from 'next/server';
+import { Database } from 'ilana-orm/edge';
+import User from '@/models/User';
+
+export const runtime = 'edge';
+
+Database.configure({
+  default: 'pg',
+  connections: {
+    pg: {
+      client: 'pg',
+      connection: { connectionString: process.env.DATABASE_URL },
+    },
+  },
+});
+
+export async function GET() {
+  const users = await User.all();
+  return NextResponse.json(users);
+}
+```
+
+---
+
+## What works and what doesn't
+
+| Feature | Standard (Node.js) | Edge |
+|---|---|---|
+| `ilana.config.js` auto-load | ✅ Automatic | ❌ Skipped — configure manually |
+| `Database.configure()` | Optional | **Required** |
+| Models, queries, relations | ✅ | ✅ |
+| Transactions | ✅ | ✅ |
+| `npx ilana migrate` | ✅ | ❌ CLI is Node.js only |
+| Seeders | ✅ | ❌ CLI is Node.js only |
+
+<Note>
+Migrations and seeders are Node.js CLI tools — they run on your machine or in CI before deployment, not inside the edge worker. Run `npx ilana migrate` during your deploy pipeline, then point the edge worker at the already-migrated database.
+</Note>

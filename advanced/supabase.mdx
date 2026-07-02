@@ -1,0 +1,123 @@
+---
+title: 'Supabase'
+description: 'Use IlanaORM with a Supabase PostgreSQL database'
+---
+
+## Overview
+
+Supabase is a hosted PostgreSQL platform. Because IlanaORM connects directly to PostgreSQL using the `pg` driver, it works with Supabase with no special setup — you just point the connection at your Supabase database URL.
+
+All IlanaORM features work: models, relations, migrations, soft deletes, transactions, and vector search (Supabase has pgvector built in).
+
+---
+
+## Connection setup
+
+Find your connection string in the Supabase dashboard under **Project Settings → Database → Connection string (URI)**. Add it to your `.env` file:
+
+```
+DATABASE_URL=postgresql://postgres:[password]@[host]:5432/postgres
+```
+
+Then configure IlanaORM:
+
+```javascript
+// ilana.config.js
+const { Database } = require('ilana-orm');
+
+Database.configure({
+  default: 'pg',
+  connections: {
+    pg: {
+      client: 'pg',
+      connection: {
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false },
+      },
+    },
+  },
+});
+```
+
+<Note>
+The `ssl: { rejectUnauthorized: false }` option is required for Supabase connections. Without it, the connection will be refused.
+</Note>
+
+---
+
+## Running migrations
+
+Migrations work exactly the same:
+
+```bash
+npx ilana migrate
+```
+
+IlanaORM will create and manage tables in your Supabase database.
+
+---
+
+## Vector search with Supabase
+
+Supabase includes the `pgvector` extension by default, so IlanaORM's `nearestTo()` and `search()` methods work out of the box. You don't even need to call `enableVectorExtension()` — just configure your model and start querying.
+
+See [Vector Search](/advanced/vector-search) for the full setup.
+
+---
+
+## Serverless deployments (Vercel, Netlify)
+
+In a regular Node.js server, database connections are created once and reused. In serverless environments, each function invocation may spin up a fresh process — creating a new connection every time. If thousands of requests come in, you'd open thousands of connections simultaneously, which overwhelms a regular PostgreSQL database.
+
+Supabase solves this with a **connection pooler** — a proxy that sits in front of the database and manages a shared pool of connections. Instead of connecting directly to your database (port `5432`), you connect to the pooler (port `6543`), and it handles distributing requests across a limited set of real connections.
+
+Get the pooler URL from your Supabase dashboard under **Project Settings → Database → Connection string → Transaction mode**.
+
+```javascript
+// ilana.config.js — for Vercel / Netlify serverless functions
+Database.configure({
+  default: 'pg',
+  connections: {
+    pg: {
+      client: 'pg',
+      connection: {
+        connectionString: process.env.DATABASE_URL, // pooler URL — port 6543
+        ssl: { rejectUnauthorized: false },
+      },
+      pool: { min: 0, max: 1 }, // don't hold open connections between invocations
+    },
+  },
+});
+```
+
+<Note>
+`pool: { min: 0, max: 1 }` tells IlanaORM not to keep spare connections alive between requests. In serverless, the process may be frozen or killed after a request anyway, so holding idle connections open just wastes pool slots.
+</Note>
+
+---
+
+## Edge runtimes (Cloudflare Workers, Next.js edge routes)
+
+Edge runtimes are more restricted than serverless functions — they have no access to the Node.js file system, so IlanaORM's normal config auto-loading doesn't work. Use the `ilana-orm/edge` entry point, which skips the auto-loader and lets you configure the database manually.
+
+```javascript
+import { Model, Database } from 'ilana-orm/edge';
+
+Database.configure({
+  default: 'pg',
+  connections: {
+    pg: {
+      client: 'pg',
+      connection: {
+        connectionString: process.env.DATABASE_URL, // pooler URL recommended
+        ssl: { rejectUnauthorized: false },
+      },
+    },
+  },
+});
+
+// Models and queries work exactly the same
+const users = await User.where('is_active', true).get();
+```
+
+See [Edge Runtime](/advanced/edge-runtime) for full details and Cloudflare Workers examples.

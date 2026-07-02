@@ -97,21 +97,44 @@ class User extends Model {
 
 ### UUID Primary Keys
 
-For non-incrementing string IDs (like UUIDs):
+Set `keyType = 'uuid'` and `incrementing = false` — IlanaORM generates a UUID automatically on create:
 
 ```javascript
 class User extends Model {
   static table = 'users';
-  static keyType = 'string';
-  static incrementing = false; // IlanaORM will generate UUIDs automatically
+  static keyType = 'uuid';
+  static incrementing = false;
 }
 
-// Usage
-const user = await User.create({
-  name: 'John Doe',
-  email: 'john@example.com',
-});
+const user = await User.create({ name: 'John Doe', email: 'john@example.com' });
 console.log(user.id); // "550e8400-e29b-41d4-a716-446655440000"
+```
+
+### ULID Primary Keys
+
+ULIDs are 26-character sortable IDs — they're URL-safe, lexicographically ordered, and include a millisecond timestamp prefix so they sort naturally by creation time:
+
+```javascript
+class Order extends Model {
+  static table = 'orders';
+  static keyType = 'ulid';
+  static incrementing = false;
+}
+
+const order = await Order.create({ total: 49.99 });
+console.log(order.id); // "01J3X7KQZB8YTPNMCHW4RSVFGE"
+```
+
+Use `char(26)` for the column type in migrations:
+
+```javascript
+export async function up(schema) {
+  await schema.createTable('orders', (table) => {
+    table.string('id', 26).primary();
+    table.decimal('total', 10, 2);
+    table.timestamps();
+  });
+}
 ```
 
 ### Timestamps
@@ -421,6 +444,20 @@ class User extends Model {
 - `restoring` / `restored` - Before/after soft delete restore
 </Info>
 
+### Muting Events
+
+Sometimes you need to save records without triggering events — for example in seeders, migrations, or bulk imports. Use `withoutEvents()`:
+
+```javascript
+await User.withoutEvents(async () => {
+  await User.create({ name: 'Admin', email: 'admin@example.com' });
+  await User.create({ name: 'Bot', email: 'bot@example.com' });
+  // creating/created/saving/saved events are all suppressed
+});
+
+// Events fire normally again after this point
+```
+
 ## Query Scopes
 
 Create reusable query constraints:
@@ -566,6 +603,28 @@ await User.query().onlyTrashed().where('role', 'admin').restore();
 await user.forceDelete();
 ```
 
+### Pruning Models
+
+Pruning lets you automatically delete stale records (e.g. old logs, expired tokens) by defining what "prunable" means on the model:
+
+```javascript
+class ActivityLog extends Model {
+  static table = 'activity_logs';
+
+  // Return a query for records that should be deleted
+  static prunable() {
+    return this.query().where('created_at', '<', new Date(Date.now() - 90 * 86400_000));
+    // deletes logs older than 90 days
+  }
+}
+
+// Delete all prunable records — processes in chunks of 1000 to avoid memory issues
+const deleted = await ActivityLog.prune();
+console.log(`Pruned ${deleted} records`);
+```
+
+Run `prune()` on a schedule (e.g. a daily cron job) to keep your tables clean.
+
 ## Model Utilities
 
 ### Reload and Compare Instances
@@ -573,16 +632,36 @@ await user.forceDelete();
 ```javascript
 // Re-fetch a fresh copy from the database
 const user = await User.find(1);
-// ... other code may have changed the record ...
 const freshUser = await user.fresh(); // new instance with up-to-date attributes
 
-// Check if two model variables refer to the same record
+// Check if two variables refer to the same database record
 const a = await User.find(1);
 const b = await User.find(1);
-console.log(a.is(b)); // true — same class + same primary key
+console.log(a.is(b));    // true  — same class + same primary key
+console.log(a.isNot(b)); // false
 
 const c = await User.find(2);
-console.log(a.is(c)); // false
+console.log(a.is(c));    // false
+console.log(a.isNot(c)); // true
+```
+
+### Replicating Models
+
+`replicate()` creates an unsaved copy of a model, excluding the primary key and timestamps so it can be inserted as a new row:
+
+```javascript
+const original = await Post.find(1);
+const copy = original.replicate();
+
+// copy has same body/title/status — but no id or timestamps
+copy.title = 'Copy of ' + original.title;
+await copy.save(); // inserts as a new record
+```
+
+You can exclude additional columns from the copy:
+
+```javascript
+const copy = original.replicate(['slug', 'published_at']);
 ```
 
 ### Table Helpers

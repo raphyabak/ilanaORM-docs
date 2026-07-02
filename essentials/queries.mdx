@@ -421,6 +421,70 @@ const results = await User.query()
 **Security Note:** Always use parameter binding (`?`) in raw queries to prevent SQL injection attacks. Never concatenate user input directly into SQL strings.
 </Warning>
 
+## Advanced Subqueries
+
+### Subquery in `addSelect`
+
+Add a computed column from a subquery without a join:
+
+```javascript
+// Add each user's latest post title as a column
+const users = await User.query()
+  .addSelect({
+    latest_post_title: (sub) => sub
+      .from('posts')
+      .select('title')
+      .whereRaw('posts.user_id = users.id')
+      .orderBy('created_at', 'desc')
+      .limit(1),
+  })
+  .get();
+
+users[0].latest_post_title; // "My latest article"
+```
+
+### Order by a subquery
+
+Sort results by a value computed from another table:
+
+```javascript
+// Order users by the number of posts they have
+const users = await User.query()
+  .orderBySubquery((sub) => {
+    sub.from('posts').count('id').whereRaw('posts.user_id = users.id');
+  }, 'desc')
+  .get();
+```
+
+---
+
+## Pending Attributes on Scopes
+
+When you use a scoped query to create records, `withPendingAttributes()` lets the scope automatically set default column values on any model created through it:
+
+```javascript
+// In a Post model
+static scopePublished(query) {
+  return query
+    .where('status', 'published')
+    .withPendingAttributes({ status: 'published' });
+}
+
+// Creating through the scope automatically sets status = 'published'
+const post = await Post.query().published().new({ title: 'Hello World' });
+// post.status === 'published'  (set by the scope, not the caller)
+await post.save();
+```
+
+You can also call `create()` on the scoped query:
+
+```javascript
+const post = await Post.query().published().create({ title: 'Hello World' });
+// Inserts with status = 'published'
+```
+
+---
+
 ## Column Expressions with `F()`
 
 Use `F()` to reference a column's current value in an update — no raw SQL, no race conditions, no need to fetch the record first:
@@ -550,9 +614,12 @@ The related model must be registered in `ModelRegistry` (call `static { this.reg
 
 ```javascript
 // Users who have at least one post
-const authors = await User.query().whereHas('posts').get();
+const authors = await User.query().has('posts').get();
 
-// Users who have at least one published post
+// Users who have more than 5 posts
+const prolific = await User.query().has('posts', '>', 5).get();
+
+// Users who have at least one published post (with a constraint)
 const publishedAuthors = await User.query()
   .whereHas('posts', (query) => {
     query.where('is_published', true);
@@ -561,13 +628,15 @@ const publishedAuthors = await User.query()
 
 // Users with no posts at all
 const lurkers = await User.query().doesntHave('posts').get();
-// Also available as alias:
-const lurkers = await User.query().whereDoesntHave('posts').get();
+// Also available as:
+const lurkers2 = await User.query().whereDoesntHave('posts').get();
 
 // Check if any record exists
 const hasAdmins = await User.query().where('role', 'admin').exists();
 const noAdmins  = await User.query().where('role', 'admin').doesntExist();
 ```
+
+`has(relation, operator?, count?)` is the simple form — filter by relation existence with an optional count. Use `whereHas` when you need to add constraints on the related records themselves.
 
 ### Raw subquery existence
 
