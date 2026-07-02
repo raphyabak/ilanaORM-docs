@@ -78,7 +78,8 @@
         "advanced/events",
         "advanced/observers",
         "advanced/casting",
-        "advanced/scopes"
+        "advanced/scopes",
+        "advanced/debugging"
       ]
     },
     {

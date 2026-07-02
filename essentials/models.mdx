@@ -534,9 +534,13 @@ await User.query()
   .where('is_active', false)
   .update({ is_active: true });
 
-// Increment/decrement
-await user.increment('login_count');
-await user.decrement('credits', 5);
+// Increment/decrement — no fetch needed, updates DB and local attribute
+await user.increment('login_count');       // login_count + 1
+await user.increment('points', 10);        // points + 10
+await user.decrement('credits', 5);        // credits - 5
+
+// Bulk increment/decrement via query builder
+await User.query().where('role', 'admin').increment('credits', 100);
 ```
 
 ### Deleting Records
@@ -555,11 +559,69 @@ await User.query()
 await user.delete(); // Sets deleted_at
 await user.restore(); // Removes deleted_at
 
+// Bulk restore — restore many at once
+await User.query().onlyTrashed().where('role', 'admin').restore();
+
 // Force delete (permanent)
 await user.forceDelete();
 ```
 
 ## Model Utilities
+
+### Reload and Compare Instances
+
+```javascript
+// Re-fetch a fresh copy from the database
+const user = await User.find(1);
+// ... other code may have changed the record ...
+const freshUser = await user.fresh(); // new instance with up-to-date attributes
+
+// Check if two model variables refer to the same record
+const a = await User.find(1);
+const b = await User.find(1);
+console.log(a.is(b)); // true — same class + same primary key
+
+const c = await User.find(2);
+console.log(a.is(c)); // false
+```
+
+### Table Helpers
+
+```javascript
+// Delete every row in the table (useful in tests / seeders)
+await User.truncate();
+
+// Create records using the model's registered factory
+await User.seed(10); // insert 10 users via factory
+```
+
+<Note>
+`seed()` requires a factory to be defined for the model with `defineFactory`. See [Factories](/essentials/factories) for setup details.
+</Note>
+
+### Enum Helpers
+
+Define the possible values for an enum column once, and IlanaORM generates `isX()` / `makeX()` helpers automatically on every instance:
+
+```javascript
+class User extends Model {
+  static enums = {
+    role: ['user', 'moderator', 'admin'],
+    status: ['active', 'suspended', 'banned'],
+  };
+}
+
+const user = await User.find(1);
+
+// Check current value
+user.isAdmin();      // true / false
+user.isModerator();  // true / false
+user.isActive();     // true / false
+
+// Change value and save
+await user.makeAdmin();     // sets role = 'admin' and saves
+await user.makeSuspended(); // sets status = 'suspended' and saves
+```
 
 ### Check Model State
 

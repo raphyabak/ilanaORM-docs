@@ -1,0 +1,150 @@
+---
+title: 'Debugging'
+description: 'Log SQL queries and handle model errors with named exceptions'
+---
+
+## Query Logging
+
+Enable query logging to print every SQL statement IlanaORM executes, along with its execution time.
+
+### Via config file (recommended)
+
+```javascript
+// ilana.config.js
+export default {
+  default: 'postgres',
+  logging: true, // ← enable here
+  connections: {
+    postgres: { ... }
+  }
+};
+```
+
+### Enable only in development
+
+```javascript
+// ilana.config.js
+export default {
+  default: 'postgres',
+  logging: process.env.NODE_ENV === 'development',
+  connections: { ... }
+};
+```
+
+### Programmatically
+
+```javascript
+import { Database } from 'ilana-orm';
+
+Database.enableLogging();  // turn on
+Database.disableLogging(); // turn off
+```
+
+### Output
+
+```
+[IlanaORM] select * from "users" where "role" = 'admin' order by "created_at" desc limit 10 — 3ms
+[IlanaORM] select * from "posts" where "user_id" in (1, 2, 3) — 1ms
+```
+
+### Inspect a single query
+
+Use `toSql()` to get the raw SQL string without executing it:
+
+```javascript
+const sql = Post.query()
+  .where('published', true)
+  .orderBy('created_at', 'desc')
+  .toSql();
+
+console.log(sql);
+// select * from "posts" where "published" = true order by "created_at" desc
+```
+
+---
+
+## ModelNotFoundException
+
+`findOrFail()` and `firstOrFail()` throw a `ModelNotFoundException` when no record is found — instead of a generic `Error`. This lets you catch it specifically and return a clean 404.
+
+```javascript
+import { ModelNotFoundException } from 'ilana-orm';
+
+try {
+  const user = await User.findOrFail(999);
+} catch (err) {
+  if (err instanceof ModelNotFoundException) {
+    console.log(err.message); // "User with id 999 not found"
+    console.log(err.model);   // "User"
+    console.log(err.id);      // 999
+  }
+}
+```
+
+### `toResponse()` — HTTP-ready error object
+
+Call `toResponse()` on the exception to get a plain `{ status, message }` object you can pass directly to your HTTP framework:
+
+```javascript
+import { ModelNotFoundException } from 'ilana-orm';
+
+try {
+  const user = await User.findOrFail(req.params.id);
+} catch (err) {
+  if (err instanceof ModelNotFoundException) {
+    const { status, message } = err.toResponse();
+    return res.status(status).json({ message }); // 404
+  }
+  throw err;
+}
+```
+
+This is especially useful in Fastify or Hono where you handle errors per route:
+
+```javascript
+// Fastify
+fastify.get('/users/:id', async (request, reply) => {
+  try {
+    return await User.findOrFail(request.params.id);
+  } catch (err) {
+    if (err instanceof ModelNotFoundException) {
+      const { status, message } = err.toResponse();
+      return reply.status(status).send({ message });
+    }
+    throw err;
+  }
+});
+```
+
+### Global Express error handler
+
+Catch it once across all routes:
+
+```javascript
+app.use((err, req, res, next) => {
+  if (err instanceof ModelNotFoundException) {
+    return res.status(404).json({ message: err.message });
+  }
+  console.error(err);
+  res.status(500).json({ message: 'Internal server error' });
+});
+```
+
+Then in your routes, just let it throw:
+
+```javascript
+app.get('/users/:id', async (req, res) => {
+  const user = await User.findOrFail(req.params.id);
+  // No need to check for null — throws ModelNotFoundException if not found
+  res.json(user);
+});
+```
+
+### Properties
+
+| Property | Type | Description |
+|---|---|---|
+| `message` | `string` | Human-readable message e.g. `"User with id 5 not found"` |
+| `name` | `string` | Always `'ModelNotFoundException'` |
+| `model` | `string` | The model class name e.g. `'User'` |
+| `id` | `any` | The ID passed to `findOrFail()`, or `undefined` for `firstOrFail()` |

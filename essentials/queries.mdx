@@ -421,6 +421,83 @@ const results = await User.query()
 **Security Note:** Always use parameter binding (`?`) in raw queries to prevent SQL injection attacks. Never concatenate user input directly into SQL strings.
 </Warning>
 
+## Column Expressions with `F()`
+
+Use `F()` to reference a column's current value in an update — no raw SQL, no race conditions, no need to fetch the record first:
+
+```javascript
+import { F } from 'ilana-orm';
+
+// Increment views without fetching the post
+await Post.query().where('id', postId).update({ views: F('views').plus(1) });
+
+// Decrement stock
+await Product.query().where('id', id).update({ stock: F('stock').minus(quantity) });
+```
+
+Available operations: `.plus(n)`, `.minus(n)`, `.times(n)`, `.divide(n)`.
+
+<Note>
+`F()` generates a safe parameterized expression — it never interpolates values directly into SQL.
+</Note>
+
+---
+
+## Plain Objects with `values()`
+
+`get()` always returns model instances. Use `values()` when you only need the raw data and want to skip model hydration — faster for read-heavy endpoints:
+
+```javascript
+// Returns plain objects instead of model instances
+const users = await User.query()
+  .select('id', 'name', 'email')
+  .where('is_active', true)
+  .values();
+
+// [{ id: 1, name: 'John', email: 'john@example.com' }, ...]
+console.log(users[0].name); // 'John' — plain object, no ORM overhead
+```
+
+---
+
+## Strict Fetching and Debugging
+
+### `sole()` — exactly one or throw
+
+`sole()` is like `firstOrFail()` but also throws if more than one record matches. Use it when your query should always return exactly one row:
+
+```javascript
+// Throws ModelNotFoundException if no match, Error if multiple matches
+const config = await AppConfig.query()
+  .where('key', 'site_title')
+  .sole();
+
+// Good for unique constraints — catches duplicates early
+const user = await User.query()
+  .where('email', req.body.email)
+  .sole(); // alerts you if email uniqueness is broken
+```
+
+### `tap()` — debug without breaking the chain
+
+`tap()` runs a callback for logging or inspection without affecting the query:
+
+```javascript
+const users = await User.query()
+  .where('is_active', true)
+  .tap((query) => console.log('SQL:', query.toSql()))
+  .orderBy('name')
+  .get();
+
+// Or inspect mid-chain during development
+const results = await Post.query()
+  .published()
+  .tap((q) => console.log('Before pagination:', q.toSql()))
+  .paginate(1, 10);
+```
+
+---
+
 ## Conditional Queries
 
 Build queries based on conditions:

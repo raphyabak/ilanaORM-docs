@@ -396,6 +396,28 @@ console.log(`${country.name} has ${country.posts.length} posts`);
 const countryWithPosts = await Country.with('posts.author').find(1);
 ```
 
+## Strict Loading
+
+Enable `strictLoading` on a model to throw an error whenever a relation is accessed without being eager loaded. This catches N+1 problems at development time instead of silently returning `undefined`:
+
+```javascript
+class Post extends Model {
+  static strictLoading = true;
+}
+
+// ❌ This throws in development
+const posts = await Post.all();
+posts[0].relations.comments; // Error: 'comments' was not eager loaded on Post
+
+// ✅ Always eager load when strictLoading is on
+const posts = await Post.with('comments').get();
+posts[0].relations.comments; // works fine
+```
+
+<Tip>
+Enable `strictLoading` during development to catch N+1 issues early, then remove or leave it enabled based on your team's preference.
+</Tip>
+
 ## Eager Loading
 
 Load relationships efficiently to avoid N+1 queries.
@@ -605,6 +627,38 @@ class User extends Model {
   }
 }
 ```
+
+## Touch
+
+When a child record saves, automatically bump the parent's `updated_at`. Useful for cache invalidation — if a comment is added to a post, the post itself looks "recently updated":
+
+```javascript
+class Comment extends Model {
+  static touches = ['post'];
+
+  post() {
+    return this.belongsTo('Post', 'post_id');
+  }
+}
+
+// Saving a comment will also UPDATE posts SET updated_at = NOW() WHERE id = comment.post_id
+await comment.save();
+```
+
+You can touch multiple parents at once:
+
+```javascript
+class Like extends Model {
+  static touches = ['post', 'user'];
+
+  post() { return this.belongsTo('Post'); }
+  user() { return this.belongsTo('User'); }
+}
+```
+
+<Note>
+Only `belongsTo` relations are supported for `touches`. The parent must have timestamps enabled.
+</Note>
 
 ## Performance Tips
 
